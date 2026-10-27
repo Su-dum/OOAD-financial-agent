@@ -1,24 +1,111 @@
-# Compiled class file
-*.class
+# ============================================================
+# Python
+# ============================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
 
-# Log file
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+.python-version
+
+# Test / coverage / static analysis
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.cache/
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.ruff_cache/
+.tox/
+.nox/
+*.mo
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# ============================================================
+# Environment variables & secrets  (LLM API keys, tushare token)
+# ============================================================
+.env
+.env.*
+!.env.example
+secrets.toml
+*.pem
+*.key
+
+# ============================================================
+# Local data & storage  (SQLite database, cached market data)
+# ============================================================
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+data/cache/
+data/raw/
+data/exports/
+logs/
 *.log
 
-# BlueJ files
-*.ctxt
+# ============================================================
+# Node / React  (frontend: React + TypeScript)
+# ============================================================
+node_modules/
+dist-ssr/
+build/
+.vite/
+.parcel-cache/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+.eslintcache
+*.tsbuildinfo
 
-# Mobile Tools for Java (J2ME)
-.mtj.tmp/
+# ============================================================
+# IDE / Editor
+# ============================================================
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.iml
+*.swp
+*.swo
+*~
 
-# Package Files #
-*.jar
-*.war
-*.nar
-*.ear
-*.zip
-*.tar.gz
-*.rar
-
-# virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
-hs_err_pid*
-replay_pid*
+# ============================================================
+# OS
+# ============================================================
+.DS_Store
+Thumbs.db
+desktop.ini
