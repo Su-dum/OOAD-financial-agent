@@ -1,0 +1,88 @@
+==========================================================================
+D3 换源验证：非东财的指数与行业数据源
+==========================================================================
+
+[0] 相关候选函数
+  _tx          ['stock_zh_a_hist_tx', 'stock_zh_a_spot_tx', 'stock_zh_a_tick_tx_js', 'stock_zh_index_daily_tx']
+  csindex      ['index_csindex_all', 'index_stock_cons_csindex', 'index_stock_cons_weight_csindex', 'stock_zh_index_hist_csindex', 'stock_zh_index_value_csindex']
+  _ths         ['bond_zh_cov_info_ths', 'fund_etf_category_ths', 'fund_etf_spot_ths', 'fund_info_ths', 'fund_new_found_ths', 'stock_board_concept_index_ths', 'stock_board_concept_info_ths', 'stock_board_concept_name_ths', 'stock_board_concept_summary_ths', 'stock_board_industry_index_ths', 'stock_board_industry_info_ths', 'stock_board_industry_name_ths', 'stock_board_industry_summary_ths', 'stock_fhps_detail_ths']
+  sw_          ['sw_index_first_info', 'sw_index_second_info', 'sw_index_third_cons', 'sw_index_third_info']
+  index_daily  ['stock_hk_index_daily_em', 'stock_hk_index_daily_sina', 'stock_zh_index_daily', 'stock_zh_index_daily_em', 'stock_zh_index_daily_tx']
+
+[1] 指数行情 备源
+  签名 stock_zh_index_daily_tx(symbol: str = 'sz980017', start_date: str = '', end_date: str = '') -> pandas.DataFrame
+  [OK]   stock_zh_index_daily_tx (symbol=sh000300)  rows=5235  5.5s
+         columns=['date', 'open', 'close', 'high', 'low', 'amount']
+         first={'date': datetime.date(2005, 4, 8), 'open': 984.67, 'close': 1003.45, 'high': 1003.7, 'low': 979.53, 'amount': 14762526.0}
+         last ={'date': datetime.date(2026, 10, 27), 'open': 4105.48, 'close': 4049.55, 'high': 4110.0, 'low': 4049.54, 'amount': 168688474.0}
+  签名 stock_zh_index_daily(symbol: str = 'sh000922') -> pandas.DataFrame
+  [OK]   stock_zh_index_daily (symbol=sh000300)  rows=6017  0.4s
+         columns=['date', 'open', 'high', 'low', 'close', 'volume']
+         first={'date': datetime.date(2002, 1, 4), 'open': 1316.455, 'high': 1316.455, 'low': 1316.455, 'close': 1316.455, 'volume': 0}
+         last ={'date': datetime.date(2026, 10, 27), 'open': 4105.481, 'high': 4110.002, 'low': 4049.542, 'close': 4049.552, 'volume': 16868847400}
+  签名 stock_zh_index_hist_csindex(symbol: str = '000928', start_date: str = '20180526', end_date: str = '20240604') -> pandas.DataFrame
+  [OK]   stock_zh_index_hist_csindex (symbol=000300, start_date=20250101, end_date=20261028)  rows=439  0.6s
+         columns=['日期', '指数代码', '指数中文全称', '指数中文简称', '指数英文全称', '指数英文简称', '开盘', '最高', '最低', '收盘', '涨跌', '涨跌幅', '成交量', '成交金额', '样本数量', '滚动市盈率']
+         first={'日期': datetime.date(2025, 1, 1), '指数代码': '000300', '指数中文全称': '沪深300指数', '指数中文简称': '沪深300', '指数英文全称': 'CSI 300 Index', '指数英文简称': 'CSI 300', '开盘': 3931.82, '最高': 3934.2, '最低': 3796.34, '收盘': 3820.4, '涨跌': -114.52, '涨跌幅': -2.91, '成交量': 21789872400.0, '成交金额': 3886.37, '样本数量': 300.0, '滚动市盈率': 12.68}
+         last ={'日期': datetime.date(2026, 10, 27), '指数代码': '000300', '指数中文全称': '沪深300指数', '指数中文简称': '沪深300', '指数英文全称': 'CSI 300 Index', '指数英文简称': 'CSI 300', '开盘': 4105.48, '最高': 4110.0, '最低': 4049.54, '收盘': 4049.55, '涨跌': -53.99, '涨跌幅': -1.32, '成交量': 16868847400.0, '成交金额': 3831.26, '样本数量': 300.0, '滚动市盈率': 12.69}
+
+[2] 行业指数历史 备源
+  签名 stock_board_industry_name_ths() -> pandas.DataFrame
+  [OK]   stock_board_industry_name_ths ()  rows=90  0.2s
+         columns=['name', 'code']
+         first={'name': '半导体', 'code': '881121'}
+         last ={'name': '种植业与林业', 'code': '881101'}
+  同花顺行业前 5 个: ['半导体', '白酒', '白色家电', '保险', '包装印刷']
+  签名 stock_board_industry_index_ths(symbol: str = '元件', start_date: str = '20200101', end_date: str = '20240108') -> pandas.DataFrame
+  [OK]   stock_board_industry_index_ths (symbol=半导体)  rows=438  0.4s
+         columns=['日期', '开盘价', '最高价', '最低价', '收盘价', '成交量', '成交额']
+         first={'日期': datetime.date(2025, 1, 2), '开盘价': 8130.753, '最高价': 8132.419, '最低价': 7745.119, '收盘价': 7839.898, '成交量': 2135527000, '成交额': 96665531000.0}
+         last ={'日期': datetime.date(2026, 10, 27), '开盘价': 13696.524, '最高价': 13737.489, '最低价': 12875.395, '收盘价': 12875.395, '成交量': 2858527900, '成交额': 177094580000.0}
+  [OK]   stock_board_industry_index_ths (symbol=白酒)  rows=438  0.4s
+         columns=['日期', '开盘价', '最高价', '最低价', '收盘价', '成交量', '成交额']
+         first={'日期': datetime.date(2025, 1, 2), '开盘价': 3348.133, '最高价': 3355.617, '最低价': 3260.646, '收盘价': 3284.216, '成交量': 263497110, '成交额': 20690368000.0}
+         last ={'日期': datetime.date(2026, 10, 27), '开盘价': 1996.974, '最高价': 2027.117, '最低价': 1985.716, '收盘价': 1993.074, '成交量': 235497310, '成交额': 11919831100.0}
+
+  申万行业指数:
+    候选: ['sw_index_first_info', 'sw_index_second_info', 'sw_index_third_cons', 'sw_index_third_info']
+  [OK]   sw_index_first_info ()  rows=31  1.4s
+         columns=['行业代码', '行业名称', '成份个数', '静态市盈率', 'TTM(滚动)市盈率', '市净率', '静态股息率']
+         first={'行业代码': '801010.SI', '行业名称': '农林牧渔', '成份个数': 104, '静态市盈率': 28.82, 'TTM(滚动)市盈率': 32.03, '市净率': 1.82, '静态股息率': 0.0}
+         last ={'行业代码': '801980.SI', '行业名称': '美容护理', '成份个数': 28, '静态市盈率': 27.08, 'TTM(滚动)市盈率': 26.17, '市净率': 2.32, '静态股息率': 0.0}
+    签名 index_hist_sw(symbol: str = '801030', period: str = 'day') -> pandas.DataFrame
+  [OK]   index_hist_sw (symbol=801010)  rows=6479  1.1s
+         columns=['代码', '日期', '收盘', '开盘', '最高', '最低', '成交量', '成交额']
+         first={'代码': '801010', '日期': datetime.date(1999, 12, 30), '收盘': 1000.0, '开盘': 1000.0, '最高': 1000.0, '最低': 1000.0, '成交量': 0.09864744, '成交额': 1.2396662266}
+         last ={'代码': '801010', '日期': datetime.date(2026, 10, 27), '收盘': 2443.14, '开盘': 2467.69, '最高': 2500.68, '最低': 2443.14, '成交量': 24.96789866, '成交额': 190.46653806}
+
+  中证行业指数:
+    签名 stock_zh_index_value_csindex(symbol: str = 'H30374') -> pandas.DataFrame
+  [OK]   stock_zh_index_value_csindex (symbol=H30184)  rows=20  2.3s
+         columns=['日期', '指数代码', '指数中文全称', '指数中文简称', '指数英文全称', '指数英文简称', '市盈率1', '市盈率2', '股息率1', '股息率2']
+         first={'日期': datetime.date(2026, 10, 27), '指数代码': 'H30184', '指数中文全称': '中证全指半导体产品与设备指数', '指数中文简称': '半导体', '指数英文全称': 'CSI All Share Semiconductors & Semiconductor Equipment Index', '指数英文简称': 'All Share Semiconductors', '市盈率1': 88.39, '市盈率2': 84.61, '股息率1': 0.21, '股息率2': 0.22}
+         last ={'日期': datetime.date(2026, 9, 30), '指数代码': 'H30184', '指数中文全称': '中证全指半导体产品与设备指数', '指数中文简称': '半导体', '指数英文全称': 'CSI All Share Semiconductors & Semiconductor Equipment Index', '指数英文简称': 'All Share Semiconductors', '市盈率1': 108.84, '市盈率2': 104.6, '股息率1': 0.17, '股息率2': 0.18}
+
+  同花顺概念板块:
+  [OK]   stock_board_concept_name_ths ()  rows=375  4.2s
+         columns=['name', 'code']
+         first={'name': '阿尔茨海默概念', 'code': '308614'}
+         last ={'name': '财税数字化', 'code': '309134'}
+    签名 stock_board_concept_index_ths(symbol: str = '阿里巴巴概念', start_date: str = '20200101', end_date: str = '20250228') -> pandas.DataFrame
+
+[3] baostock 指数行情（免费、无东财限频）
+  login=0
+  [OK] sh.000300 rows=922 err=0 (5.5s)
+         fields=['date', 'open', 'high', 'low', 'close', 'volume', 'amount', 'pctChg']
+         first=['2023-01-03', '3864.8356', '3893.9904', '3831.2450', '3887.8992', '11505187500', '207540165953.2000', '0.420117']
+         last =['2026-10-27', '4105.4807', '4110.0018', '4049.5420', '4049.5516', '16868847400', '383125564549.2000', '-1.315731']
+  [OK] sh.000001 rows=922 err=0 (3.3s)
+         fields=['date', 'open', 'high', 'low', 'close', 'volume', 'amount', 'pctChg']
+         first=['2023-01-03', '3087.5130', '3119.8556', '3073.0540', '3116.5119', '28137036200', '331392138948.0000', '0.882218']
+         last =['2026-10-27', '3698.4405', '3708.1981', '3648.3010', '3648.3010', '41778953200', '672414398244.3000', '-1.331133']
+  [OK] sz.399001 rows=922 err=0 (2.9s)
+         fields=['date', 'open', 'high', 'low', 'close', 'volume', 'amount', 'pctChg']
+         first=['2023-01-03', '11003.0469', '11134.9614', '10921.4191', '11117.1303', '39789964322', '457443911913.0100', '0.918159']
+         last =['2026-10-27', '11591.3604', '11633.3023', '11245.7203', '11245.7319', '52191734816', '788543922869.4350', '-2.502489']
+  logout ok
+
+=== DONE ===
