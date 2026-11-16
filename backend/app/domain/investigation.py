@@ -61,6 +61,8 @@ class InvestigationReport:
     confidence: float = 0.0
     created_at: str = field(
         default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    # 结论是怎么来的：{provider, model, cited_evidence_ids, degraded, ...}
+    llm_meta: dict = field(default_factory=dict)
 
     # ---------------- 组装 ----------------
     def add_evidence(self, ev: Evidence) -> None:
@@ -85,7 +87,7 @@ class InvestigationReport:
             evidences=[e.to_dict() for e in self.evidences],
             facts=self.facts, hypotheses=self.hypotheses,
             conclusion=self.conclusion, confidence=self.confidence,
-            created_at=self.created_at)
+            created_at=self.created_at, llm_meta=self.llm_meta)
 
     def to_markdown(self) -> str:
         lines = [f"# {self.code} {self.name} 事件调查报告", ""]
@@ -105,6 +107,13 @@ class InvestigationReport:
         if self.conclusion:
             lines += ["## 结论", "", self.conclusion,
                       f"", f"置信度：{self.confidence:.0%}", ""]
+            meta = self.llm_meta or {}
+            if meta.get("degraded"):
+                lines += [f"> 结论由模板生成（LLM 调用降级：{meta.get('reason', '')}）", ""]
+            elif meta.get("model"):
+                cited = meta.get("cited_evidence_ids") or []
+                lines += [f"> 结论由 {meta.get('provider')}/{meta.get('model')} 归纳，"
+                          f"引用证据 {cited if cited else '无'}", ""]
         if self.evidences:
             lines += ["## 证据来源", ""]
             lines += [f"{i+1}. {e.cite()}" for i, e in enumerate(self.evidences)]

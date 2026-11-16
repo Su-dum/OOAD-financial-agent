@@ -1,5 +1,5 @@
 /** 股票搜索：受控输入 + 触发回调。组件不直接调 service，保持无副作用。 */
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 
 interface Props {
   initialCode?: string;
@@ -10,7 +10,7 @@ interface Props {
 export function StockSearch({ initialCode = "600519", onSearch, disabled }: Props) {
   const [code, setCode] = useState(initialCode);
 
-  const submit = (e: React.FormEvent) => {
+  const submit = (e: FormEvent) => {
     e.preventDefault();
     const v = code.trim();
     if (/^\d{6}$/.test(v)) onSearch(v);

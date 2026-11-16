@@ -134,10 +134,24 @@ class IndicatorTool:
 # ============================================================
 class InvestigationAgent:
     def __init__(self, tools: Sequence[InvestigationTool],
-                 llm: Optional[LLMClient] = None, log=print):
+                 llm: Optional[LLMClient] = None,
+                 conclusion_writer=None, log=print):
+        """
+        结论生成用策略模式：
+          - 传入 conclusion_writer  -> 直接用它
+          - 只传 llm                -> 包成 LLMConclusionWriter（带引用校验与降级）
+          - 都不传                  -> 模板结论（永远可用）
+        """
+        from .llm_conclusion import LLMConclusionWriter, TemplateConclusionWriter
+
         self.tools = list(tools)
         self.llm = llm
         self.log = log
+        if conclusion_writer is None:
+            conclusion_writer = (LLMConclusionWriter(llm, log=log)
+                                 if llm is not None
+                                 else TemplateConclusionWriter(log=log))
+        self.writer = conclusion_writer
 
     # ---------------- 主流程 ----------------
     def investigate(self, event: MarketEvent, days: int = 7,
@@ -229,47 +243,5 @@ class InvestigationAgent:
             report.add_hypothesis("缺乏可核实的公开信息，暂不能给出成因判断")
 
     def _conclude(self, report: InvestigationReport) -> None:
-        news_n = len(report.evidence_by_kind("news"))
-        notice_n = len(report.evidence_by_kind("notice"))
-        total = len(report.evidences)
-
-        if self.llm is not None:
-            prompt = self._build_prompt(report)
-            try:
-                report.conclusion = self.llm.complete(prompt).strip()
-            except Exception as e:
-                if self.log:
-                    self.log(f"  [agent] LLM 调用失败: {type(e).__name__}")
-                report.conclusion = self._fallback_conclusion(report, news_n, notice_n)
-        else:
-            report.conclusion = self._fallback_conclusion(report, news_n, notice_n)
-
-        # 置信度：证据越多、越权威（公告 > 新闻）越高
-        report.confidence = min(0.9, 0.15 * min(total, 3) + 0.15 * min(notice_n, 2)
-                                + 0.1 * min(news_n, 3))
-
-    @staticmethod
-    def _fallback_conclusion(report: InvestigationReport,
-                             news_n: int, notice_n: int) -> str:
-        parts = []
-        if notice_n:
-            parts.append(f"公司在该期间披露了 {notice_n} 条公告")
-        if news_n:
-            parts.append(f"检索到 {news_n} 条相关新闻")
-        if not parts:
-            return ("未检索到可支撑成因判断的公告或新闻。"
-                    "该异动可能是市场整体或行业层面的联动，建议扩大检索范围。")
-        return (f"{'，'.join(parts)}。上述证据只能说明「期间发生了什么」，"
-                f"尚不足以确证「是该事件导致价格变化」。"
-                f"建议结合行业指数同步表现与更长窗口进一步验证。")
-
-    def _build_prompt(self, report: InvestigationReport) -> str:
-        facts = "\n".join(f"- {f}" for f in report.facts)
-        cites = "\n".join(f"- {e.cite()}" for e in report.evidences[:15])
-        return (
-            "你是金融分析助手。请仅依据下面列出的事实与证据，"
-            "判断该价格异动可能的成因，并明确区分「有证据支持的事实」与「推测」。\n"
-            "如果证据不足以判断，必须直说，不要编造。\n\n"
-            f"事件：{report.event.describe() if report.event else ''}\n\n"
-            f"事实：\n{facts}\n\n证据来源：\n{cites}\n\n"
-            "请用 3~5 句话给出结论，并标注置信度高低。")
+        """结论生成交给策略：模板 / LLM。写作者自己负责降级。"""
+        self.writer.write(report)

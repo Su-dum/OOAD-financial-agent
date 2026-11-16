@@ -77,6 +77,11 @@ class InvestigateRequest(BaseModel):
     days: int = 7
     question: Optional[str] = None
     persist: bool = True
+    # 前端从事件列表拿到的真实字段，传进来报告会更贴合事实
+    severity: str = "medium"
+    value: Optional[float] = None
+    threshold: Optional[float] = None
+    detail: Optional[str] = None
 
 
 @router.post("/investigate", summary="围绕一个事件做调查并生成报告")
@@ -85,12 +90,14 @@ def investigate(req: InvestigateRequest):
 
     svc = get_services()
     trade_date = req.trade_date or datetime.now().strftime("%Y-%m-%d")
+    name = svc.market.name_of(req.code)
     ev = MarketEvent(
-        code=req.code.split(".")[0], name=svc.market.name_of(req.code),
+        code=req.code.split(".")[0], name=name,
         event_type=req.event_type, trade_date=trade_date,
         detected_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        severity="medium", value=None, threshold=None,
-        detail=f"手动发起调查：{req.event_type}", rule_name="manual")
+        severity=req.severity, value=req.value, threshold=req.threshold,
+        detail=req.detail or f"{name or req.code} 在 {trade_date} 发生 {req.event_type}",
+        rule_name="manual")
     report = svc.agent.investigate(ev, days=req.days, question=req.question or "")
     rid = svc.report_repo.save(report) if req.persist else 0
     return {"report_id": rid, "report": report.to_dict(),

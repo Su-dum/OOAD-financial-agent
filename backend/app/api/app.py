@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .deps import get_services
 from .routes import events as events_routes
+from .routes import maintenance as maintenance_routes
 from .routes import stocks as stocks_routes
 
 
@@ -35,6 +36,7 @@ def create_app() -> FastAPI:
 
     app.include_router(stocks_routes.router)
     app.include_router(events_routes.router)
+    app.include_router(maintenance_routes.router)
 
     @app.get("/api/health", tags=["system"], summary="健康检查")
     def health():

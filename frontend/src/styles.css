@@ -1,4 +1,4 @@
-﻿:root {
+:root {
   --bg: #0f1115;
   --panel: #171a21;
   --line: #262b36;
@@ -90,3 +90,47 @@ h3 { font-size: 14px; color: var(--muted); margin: 18px 0 8px; }
   .two-col { grid-template-columns: 1fr; }
   .events li { grid-template-columns: 1fr; }
 }
+
+/* ---------- 更新数据条 ---------- */
+.app-header h1 { margin-bottom: 4px; }
+.app-header p { margin: 0 0 20px; font-size: 13px; }
+
+.refresh-bar {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 12px; padding: 12px 16px; margin-bottom: 16px;
+}
+.refresh-bar button.primary {
+  padding: 9px 20px; border-radius: 8px; cursor: pointer; font-weight: 600;
+  border: 1px solid var(--accent); background: var(--accent); color: #fff;
+}
+.refresh-bar button.primary:disabled { opacity: .6; cursor: default; }
+.refresh-summary { font-size: 13px; line-height: 1.7; }
+.refresh-summary b { color: var(--accent); }
+.muted { color: var(--muted); font-size: 12px; }
+.warn { color: var(--medium); font-style: normal; }
+
+/* ---------- 自选股 chips ---------- */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.chip {
+  display: inline-flex; align-items: center;
+  border: 1px solid var(--line); border-radius: 999px; overflow: hidden;
+}
+.chip-name {
+  background: transparent; border: 0; color: var(--text);
+  padding: 5px 10px; cursor: pointer; font-size: 13px;
+}
+.chip-name:hover { color: var(--accent); }
+.chip-x {
+  background: transparent; border: 0; border-left: 1px solid var(--line);
+  color: var(--muted); padding: 5px 9px; cursor: pointer;
+}
+.chip-x:hover { color: var(--high); }
+
+.ev-stock {
+  background: transparent; border: 0; color: var(--accent);
+  cursor: pointer; font-size: 13px; padding: 0;
+}
+.ev-stock:hover { text-decoration: underline; }
+
+.report { scroll-margin-top: 20px; }

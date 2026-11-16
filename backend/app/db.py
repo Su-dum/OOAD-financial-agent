@@ -1,5 +1,15 @@
 # -*- coding: utf-8 -*-
-"""SQLite 连接与建表。新闻库独立于行情库，放在 data/news.db。"""
+"""SQLite 连接与建表。应用库（新闻/事件/报告）在 data/news.db。
+
+⚠️ 线程注意事项
+    FastAPI 的同步端点跑在线程池里，同一请求可能落在不同线程。
+    sqlite3 默认禁止跨线程使用连接（ProgrammingError: SQLite objects created
+    in a thread can only be used in that same thread），所以必须
+    `check_same_thread=False`。
+
+    SQLite 自身是 SERIALIZED 线程安全模式，配合 WAL + timeout 即可满足本项目：
+    读并发、写串行（写时自动等锁，最多等 30 秒）。
+"""
 import os
 import sqlite3
 from pathlib import Path
@@ -15,11 +25,12 @@ STOCK_MAP_CSV = SEED_DIR / "sw_stock_map.csv"
 def connect(db_path=None):
     path = Path(db_path) if db_path else NEWS_DB
     path.parent.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(str(path))
+    con = sqlite3.connect(str(path), check_same_thread=False, timeout=30.0)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA journal_mode=WAL")
     con.execute("PRAGMA synchronous=NORMAL")
     con.execute("PRAGMA foreign_keys=ON")
+    con.execute("PRAGMA busy_timeout=30000")
     return con
 
 
@@ -93,6 +104,15 @@ def init_schema(con):
         UNIQUE(code, event_type, trade_date, rule_name)
     );
     CREATE INDEX IF NOT EXISTS idx_event_code_date ON event(code, trade_date DESC);
+
+    -- 自选股（监控列表）：对应提案里的 Watchlist / MonitoringTask
+    CREATE TABLE IF NOT EXISTS watchlist (
+        code      TEXT PRIMARY KEY,
+        name      TEXT,
+        industry  TEXT,
+        added_at  TEXT NOT NULL,
+        note      TEXT
+    );
 
     -- 调查报告（B3）：JSON 原文 + 冗余 markdown
     CREATE TABLE IF NOT EXISTS report (

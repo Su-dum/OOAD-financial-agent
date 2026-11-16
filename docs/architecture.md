@@ -77,7 +77,10 @@ Composition Root 在启动时装配。所以换数据源只改 `infrastructure/`
 | `InvestigationTool` | 调查工具协议 |
 | `NewsSearchTool` / `NoticeSearchTool` / `IndicatorTool` | 三个具体工具，各自产出 `Evidence` |
 | `InvestigationAgent` | 拆任务 → 调工具 → 组装报告（B3 / D2） |
-| `LLMClient` | 协议：可选的大模型客户端，不接也能出报告 |
+| `ConclusionWriter` | **协议**：结论生成策略 |
+| `TemplateConclusionWriter` | 模板拼接（永远可用的兜底） |
+| `LLMConclusionWriter` | 大模型归纳 + **引用校验** + 失败自动降级 |
+| `LLMClient` / `StructuredLLMClient` | 协议：大模型客户端（可选 JSON 能力） |
 
 ### 基础设施层
 
@@ -91,6 +94,8 @@ Composition Root 在启动时装配。所以换数据源只改 `infrastructure/`
 | `CsvPriceCache` | `PriceCache` 实现，CSV 落盘 + TTL |
 | `SqliteNewsRepository` / `SqliteEventRepository` / `SqliteReportRepository` | 仓储实现 |
 | `CsvStockCatalog` | 申万行业映射（5229 只） |
+| `OpenAIChatClient` | 满足 `LLMClient` 协议；同时支持 DeepSeek 与 OpenAI（OpenAI 兼容接口） |
+| `LLMConfig` | 从环境变量 / `.env` 装配，含 provider 预设 |
 
 ## 四、用到的设计模式
 
@@ -104,6 +109,7 @@ Composition Root 在启动时装配。所以换数据源只改 `infrastructure/`
 | **门面** | `MarketDataService` / `FinancialAnalyzer` | 给接口层一个简单入口，隐藏内部编排 |
 | **依赖倒置** | `ports.py` + `deps.py` | 上层依赖抽象，具体实现由 Composition Root 注入 |
 | **值对象** | `PriceRecord` / `MarketEvent` / `Evidence`（frozen） | 不可变，避免共享状态被意外修改 |
+| **策略（结论生成）** | `ConclusionWriter` → 模板 / LLM | 有 key 用模型归纳，无 key 或校验失败自动退回模板 |
 
 ## 五、三个刻意的设计取舍
 
@@ -133,11 +139,11 @@ Composition Root 在启动时装配。所以换数据源只改 `infrastructure/`
 
 ```
 $ pytest tests -q
-37 passed in 0.09s
+50 passed in 0.17s
 ```
 
 - `tests/test_indicators.py`（19 个）：纯函数计算
-- `tests/test_architecture.py`（18 个）：**完全不联网**，用假 Provider / 假工具注入
+- `tests/test_architecture.py`（18 个）：**完全不联网**，用假 Provider / 假工具注入\n- `tests/test_llm.py`（14 个）：**不联网不花钱**，用假 LLM 客户端验证幻觉拦截与降级
 
 架构测试覆盖：
 
