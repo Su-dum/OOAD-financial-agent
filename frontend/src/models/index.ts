@@ -72,6 +72,8 @@ export interface EventDTO {
   code: string;
   name: string;
   event_type: string;
+  /** 后端给的中文事件名（domain/events.py），前端优先用它 */
+  label?: string;
   trade_date: string;
   detected_at: string;
   severity: "low" | "medium" | "high";
@@ -79,6 +81,8 @@ export interface EventDTO {
   threshold: number | null;
   detail: string;
   rule_name: string;
+  /** 公告类事件带原始公告链接，便于追溯 */
+  source_url?: string | null;
 }
 
 export class MarketEvent {
@@ -89,15 +93,31 @@ export class MarketEvent {
     price_surge: "上涨异动",
     volume_spike: "放量异动",
     statistical_anomaly: "统计异常",
+    // 公告类（B2：earnings announcements / major corporate events）
+    notice_earnings: "财报披露",
+    notice_dividend: "分红派息",
+    notice_buyback: "股份回购",
+    notice_insider_increase: "股东增持",
+    notice_insider_decrease: "股东减持",
+    notice_major_deal: "重大交易",
+    notice_clarification: "异动澄清",
+    notice_regulatory: "监管事项",
+    notice_equity_change: "股本变动",
+    notice_management: "高管变动",
+    notice_procedural: "程序性公告",
     generic: "事件",
   };
 
-  get label(): string { return MarketEvent.LABELS[this.dto.event_type] ?? this.dto.event_type; }
+  get label(): string {
+    return this.dto.label ?? MarketEvent.LABELS[this.dto.event_type] ?? this.dto.event_type;
+  }
   get severityClass(): string { return `sev-${this.dto.severity}`; }
+  get isNotice(): boolean { return this.dto.event_type.startsWith("notice_"); }
 }
 
 export interface EvidenceDTO {
-  kind: "news" | "notice" | "indicator";
+  /** event / cross 是追问用的证据类型；报告里只出现 news/notice/indicator */
+  kind: string;
   source: string;
   title: string;
   url: string | null;
@@ -145,4 +165,212 @@ export class InvestigationReport {
   get confidenceText(): string {
     return `${Math.round(this.dto.confidence * 100)}%`;
   }
+}
+
+// ============================================================
+// 图表（C3）：价格序列与跨资产
+// ============================================================
+export interface SeriesPointDTO {
+  date: string;
+  close: number;
+  volume: number | null;
+  pe_ttm: number | null;
+  pb: number | null;
+}
+
+export interface SeriesDTO {
+  code: string;
+  name: string;
+  industry_l1: string;
+  start: string;
+  end: string;
+  adjust: string;
+  source: string;
+  n_days: number;
+  points: SeriesPointDTO[];
+}
+
+/** 一段价格序列的视图对象：只做取点 / 极值 / 格式化，不重算指标。 */
+export class Series {
+  constructor(readonly dto: SeriesDTO) {}
+
+  get points(): SeriesPointDTO[] { return this.dto.points; }
+  get first(): SeriesPointDTO | undefined { return this.dto.points[0]; }
+  get last(): SeriesPointDTO | undefined { return this.dto.points[this.dto.points.length - 1]; }
+
+  get periodReturn(): number | null {
+    if (!this.first || !this.last || this.first.close <= 0) return null;
+    return this.last.close / this.first.close - 1;
+  }
+
+  /** 归一化净值（首日 = 100），用于「相对表现」图 */
+  get netValues(): number[] {
+    const f = this.first?.close ?? 0;
+    if (f <= 0) return [];
+    return this.dto.points.map((p) => (p.close / f) * 100);
+  }
+
+  get provenance(): string {
+    return `${this.dto.source} / ${this.dto.adjust} / ${this.dto.n_days} 个交易日`;
+  }
+}
+
+export interface CrossAssetDTO {
+  code: string;
+  name: string;
+  industry_l1: string;
+  total_return: number | null;
+  annualized_return: number | null;
+  annualized_volatility: number | null;
+  max_drawdown: number | null;
+  sharpe: number | null;
+  beta?: number | null;
+  corr_to_benchmark?: number | null;
+  tracking_error?: number | null;
+  excess_return?: number | null;
+}
+
+export interface CorrelationDTO {
+  codes: string[];
+  matrix: (number | null)[][];
+}
+
+export interface NetValueDTO {
+  dates: string[];
+  series: { code: string; name: string; values: number[] }[];
+}
+
+export interface BenchmarkDTO {
+  symbol: string;
+  name: string;
+  total_return: number | null;
+  annualized_volatility: number | null;
+  source: string;
+  net_value: number[];
+}
+
+export interface CrossDTO {
+  start: string;
+  end: string;
+  n_days: number;
+  adjust?: string;
+  source?: string;
+  assets: CrossAssetDTO[];
+  correlation: CorrelationDTO;
+  net_value: NetValueDTO;
+  benchmark?: BenchmarkDTO | null;
+  note?: string;
+}
+
+export class CrossAsset {
+  constructor(readonly dto: CrossDTO) {}
+
+  get hasCorrelation(): boolean {
+    return (this.dto.correlation?.matrix?.length ?? 0) > 1;
+  }
+
+  get leader(): CrossAssetDTO | undefined {
+    return this.dto.assets[0];
+  }
+
+  getBenchmarkLine(): number[] {
+    return this.dto.benchmark?.net_value ?? [];
+  }
+
+  /** 相关系数 -> 语义标签（前端只做展示映射，不做统计） */
+  static corrLabel(v: number | null): string {
+    if (v === null || v === undefined) return "—";
+    const a = Math.abs(v);
+    const dir = v > 0 ? "正" : "负";
+    if (a >= 0.7) return `强${dir}相关`;
+    if (a >= 0.4) return `中等${dir}相关`;
+    if (a >= 0.2) return `弱${dir}相关`;
+    return "几乎无关";
+  }
+}
+
+// ============================================================
+// 自然语言追问（C2）
+// ============================================================
+export interface ChatEvidenceDTO {
+  id: number;
+  kind: string;
+  source: string;
+  title: string;
+  url: string | null;
+  published_at: string | null;
+  excerpt: string;
+  confidence: number;
+}
+
+export interface ChatAction {
+  type: "set_alert" | "set_range" | "add_watchlist" | string;
+  describe: string;
+  rule_type?: string;
+  params?: Record<string, number>;
+  days?: number;
+  code?: string;
+}
+
+export interface ChatApplied {
+  action: ChatAction;
+  ok: boolean;
+  effective?: Record<string, number | string>;
+  error?: string;
+  name?: string;
+}
+
+export interface ChatAnswerDTO {
+  question: string;
+  code: string;
+  start: string;
+  end: string;
+  intent: string;
+  answer: string;
+  cited_evidence_ids: number[];
+  evidences: ChatEvidenceDTO[];
+  actions: ChatAction[];
+  applied: ChatApplied[];
+  llm_meta: {
+    enabled: boolean;
+    degraded: boolean;
+    reason?: string;
+    insufficient_evidence?: boolean;
+    confidence?: number;
+  };
+}
+
+/** 一条对话消息（前端本地状态，不入库） */
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+  answer?: ChatAnswerDTO;
+}
+
+// ============================================================
+// 预警条件（C1）
+// ============================================================
+export interface AlertRuleDTO {
+  rule_type: string;
+  label: string;
+  params: Record<string, number | string | string[]>;
+  defaults: Record<string, number | string | string[]>;
+  enabled: boolean;
+  source: "default" | "global" | "code";
+  bounds: Record<string, [number, number]>;
+  is_percent: boolean;
+}
+
+// ============================================================
+// 跨期比较（A3）
+// ============================================================
+export interface PeriodRowDTO {
+  period: string;
+  start: string;
+  end: string;
+  total_return: number | null;
+  annualized_volatility: number | null;
+  max_drawdown: number | null;
+  sharpe: number | null;
+  n_days: number;
 }

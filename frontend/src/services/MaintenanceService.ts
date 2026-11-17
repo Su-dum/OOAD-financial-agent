@@ -23,12 +23,23 @@ export interface PruneResult {
   freed_rows: number;
 }
 
+export interface NoticeIngestStat {
+  code: string;
+  source: string;
+  fetched: number;
+  inserted: number;
+  classified: number;
+  stopped_by: string;
+}
+
 export interface RefreshResult {
   started_at: string;
   elapsed_sec: number;
   news: IngestStat[];
+  notices?: NoticeIngestStat[];
   events_detected: number;
   events_saved: number;
+  notice_events?: number;
   stocks_scanned: number;
   failed_stocks: string[];
   prune: PruneResult | { error: string };

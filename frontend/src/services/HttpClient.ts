@@ -52,6 +52,10 @@ export class HttpClient {
     return this.request<T>(path, { method: "POST", body: JSON.stringify(body) });
   }
 
+  put<T>(path: string, body: unknown = {}): Promise<T> {
+    return this.request<T>(path, { method: "PUT", body: JSON.stringify(body) });
+  }
+
   delete<T>(path: string): Promise<T> {
     return this.request<T>(path, { method: "DELETE" });
   }
