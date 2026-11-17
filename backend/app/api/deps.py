@@ -15,20 +15,30 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
+from ..application.alert_config_service import AlertConfigService
 from ..application.analysis_service import FinancialAnalyzer
+from ..application.conversation_service import ConversationAgent
+from ..application.cross_asset_service import CrossAssetAnalyzer
 from ..application.investigation_service import (IndicatorTool, InvestigationAgent,
                                                 NewsSearchTool, NoticeSearchTool)
 from ..application.maintenance_service import MaintenanceService, RetentionPolicy
 from ..application.market_service import MarketDataService
 from ..application.monitoring_service import EventMonitor
 from ..application.news_service import NewsIngestService
+from ..application.notice_service import NoticeIngestService
 from ..application.refresh_service import RefreshService
 from ..infrastructure.catalog import CsvStockCatalog
 from ..infrastructure.llm.client import LLMConfig, OpenAIChatClient, load_dotenv
 from ..infrastructure.providers.cache import CsvPriceCache
 from ..infrastructure.providers.cninfo_provider import CninfoNoticeProvider
+from ..infrastructure.providers.eastmoney_notice_provider import (
+    EastmoneyNoticeProvider)
+from ..infrastructure.providers.sina_index_provider import SinaIndexProvider
 from ..infrastructure.repositories.event_repository import SqliteEventRepository
+from ..infrastructure.repositories.alert_rule_repository import (
+    SqliteAlertRuleRepository)
 from ..infrastructure.repositories.news_repository import SqliteNewsRepository
+from ..infrastructure.repositories.notice_repository import SqliteNoticeRepository
 from ..infrastructure.repositories.report_repository import SqliteReportRepository
 from ..infrastructure.repositories.watchlist_repository import SqliteWatchlistRepository
 
@@ -51,10 +61,14 @@ class Services:
         self.cache = CsvPriceCache(CACHE_DIR, ttl=MARKET_CACHE_TTL)
         self.catalog = CsvStockCatalog()
         self.news_repo = SqliteNewsRepository.open(log=quiet)
+        # 公告：东财给「类型」（用于 B2 分类），巨潮给「PDF 正文」（用于 B3 引用）
+        self.notice_list_provider = EastmoneyNoticeProvider(log=quiet)
         self.notice_provider = CninfoNoticeProvider(log=quiet)
         self.event_repo = SqliteEventRepository(self.news_repo.con, log=quiet)
         self.report_repo = SqliteReportRepository(self.news_repo.con, log=quiet)
         self.watchlist_repo = SqliteWatchlistRepository(self.news_repo.con, log=quiet)
+        self.notice_repo = SqliteNoticeRepository(self.news_repo.con, log=quiet)
+        self.alert_repo = SqliteAlertRuleRepository(self.news_repo.con, log=quiet)
         self.watchlist_repo.seed_defaults(catalog=self.catalog)
 
         # ---- LLM（可选）----
@@ -62,29 +76,47 @@ class Services:
         self.llm_client = (OpenAIChatClient(self.llm_config, log=quiet)
                            if self.llm_config.enabled else None)
 
+        # ---- 预警规则配置（C1）：默认 -> 全局 -> 个股 三级合并 ----
+        self.alerts = AlertConfigService(self.alert_repo, log=quiet)
+
         # ---- 应用服务 ----
         self.market = MarketDataService.default(cache=self.cache, catalog=self.catalog,
                                                log=quiet)
         self.analyzer = FinancialAnalyzer(self.market, log=quiet)
-        self.monitor = EventMonitor.default(self.market, log=quiet)
+        # 指数单独成链：指数代码（sh000300）不能和股票代码混在一条链里
+        self.index_provider = SinaIndexProvider(cache=self.cache, log=quiet)
+        self.cross = CrossAssetAnalyzer(self.market, catalog=self.catalog,
+                                        benchmark=self.index_provider, log=quiet)
+        self.monitor = EventMonitor.default(self.market, notices=self.notice_repo,
+                                            rulebook=self.alerts, log=quiet)
         self.agent = InvestigationAgent(
             tools=[
                 NewsSearchTool(self.news_repo, log=quiet),
-                NoticeSearchTool(self.notice_provider, deep=False, log=quiet),
+                NoticeSearchTool(self.notice_provider, repo=self.notice_repo,
+                                 deep=False, log=quiet),
                 IndicatorTool(self.analyzer, log=quiet),
             ],
             llm=self.llm_client,          # None 时自动退回模板结论
             log=quiet,
         )
+        # 自然语言追问（C2）：LLM 可选；没有 key 时用模板答案，功能不缺失
+        self.chat = ConversationAgent(
+            self.analyzer, monitor=self.monitor, notices=self.notice_repo,
+            news=self.news_repo, cross=self.cross, catalog=self.catalog,
+            llm=self.llm_client, log=quiet)
 
-        # ---- 运维：新闻采集、保留策略、一键刷新 ----
+        # ---- 运维：新闻/公告采集、保留策略、一键刷新 ----
         self.news_ingest = NewsIngestService(self.news_repo, log=quiet)
+        self.notice_ingest = NoticeIngestService(
+            self.notice_repo, [self.notice_list_provider, self.notice_provider],
+            log=quiet)
         self.maintenance = MaintenanceService(self.news_repo.con,
                                               RetentionPolicy(), log=quiet)
         self.refresh = RefreshService(
             news=self.news_ingest, monitor=self.monitor,
             event_repo=self.event_repo, watchlist_repo=self.watchlist_repo,
-            maintenance=self.maintenance, con=self.news_repo.con, log=quiet)
+            maintenance=self.maintenance, con=self.news_repo.con,
+            notice_ingest=self.notice_ingest, log=quiet)
 
     # 便于健康检查
     def info(self) -> dict:
@@ -92,6 +124,7 @@ class Services:
             providers=self.market.chain.names(),
             stocks=len(self.catalog),
             news=self.news_repo.stats(),
+            notices=self.notice_repo.stats(),
             cache_dir=str(CACHE_DIR),
             llm=dict(
                 enabled=self.llm_client is not None,

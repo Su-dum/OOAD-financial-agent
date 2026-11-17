@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
 """一键刷新服务（应用层）。
 
-对应前端那个「更新数据」按钮。一次调用完成四件事：
+对应前端那个「更新数据」按钮。一次调用完成五件事：
 
     1. 新闻增量补齐（只补最近 N 天，页数有上限，避免请求太久）
     2. 实时快照（东财快讯 + 财联社电报）
-    3. 自选股事件检测并落库（前端事件列表直接读它）
-    4. 按保留策略裁剪旧数据（防止无限增长）
+    3. 自选股公告增量（B2 的公告事件靠它，没有公告就没有财报/回购/减持事件）
+    4. 自选股事件检测并落库（行情类规则 + 公告类规则，前端事件列表直接读它）
+    5. 按保留策略裁剪旧数据（防止无限增长）
 
 设计要点：**限时限量**。这是个同步 HTTP 请求，必须保证能在用户可接受的
 时间（约 20~60 秒）内返回，所以每一步都有明确上限，并把过程写进结果里
@@ -27,8 +28,10 @@ class RefreshResult:
     started_at: str = ""
     elapsed_sec: float = 0.0
     news: list[dict] = field(default_factory=list)
+    notices: list[dict] = field(default_factory=list)
     events_detected: int = 0
     events_saved: int = 0
+    notice_events: int = 0
     stocks_scanned: int = 0
     failed_stocks: list[str] = field(default_factory=list)
     prune: dict = field(default_factory=dict)
@@ -40,8 +43,10 @@ class RefreshResult:
         return dict(started_at=self.started_at,
                     elapsed_sec=round(self.elapsed_sec, 1),
                     news=self.news,
+                    notices=self.notices,
                     events_detected=self.events_detected,
                     events_saved=self.events_saved,
+                    notice_events=self.notice_events,
                     stocks_scanned=self.stocks_scanned,
                     failed_stocks=self.failed_stocks,
                     prune=self.prune,
@@ -53,22 +58,26 @@ class RefreshResult:
 class RefreshService:
     def __init__(self, news: NewsIngestService, monitor: EventMonitor,
                  event_repo, watchlist_repo, maintenance: MaintenanceService,
-                 con, log=print):
+                 con, notice_ingest=None, log=print):
         self.news = news
         self.monitor = monitor
         self.event_repo = event_repo
         self.watchlist_repo = watchlist_repo
         self.maintenance = maintenance
         self.con = con
+        self.notice_ingest = notice_ingest      # 可选：没有就跳过公告增量
         self.log = log
 
     # ---------------- 主流程 ----------------
     def run(self, news_days: float = 2, max_pages: int = 12,
             detect_days: int = 90, price_source: str = "sina",
-            prune: bool = True, dry_run_prune: bool = False) -> RefreshResult:
+            prune: bool = True, dry_run_prune: bool = False,
+            include_notices: bool = True, notice_days: int = 400,
+            max_notice_stocks: int = 12) -> RefreshResult:
         t0 = time.time()
         res = RefreshResult(started_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         res.news_total_before = self._count_news()
+        wl = self._watchlist()
 
         # 1) 新闻增量
         try:
@@ -86,11 +95,16 @@ class RefreshService:
             res.news.append(IngestStats(source="实时快照",
                                         stopped_by=f"error:{type(e).__name__}").to_dict())
 
-        # 3) 自选股事件检测
-        self._detect_watchlist_events(res, detect_days=detect_days,
+        # 3) 自选股公告增量（只对前 N 只，避免刷新变成几十次外部请求）
+        if include_notices:
+            self._ingest_notices(res, wl.codes[:max_notice_stocks],
+                                 days=notice_days)
+
+        # 4) 自选股事件检测
+        self._detect_watchlist_events(res, wl, detect_days=detect_days,
                                       price_source=price_source)
 
-        # 4) 保留期裁剪
+        # 5) 保留期裁剪
         if prune:
             try:
                 pr = self.maintenance.prune(dry_run=dry_run_prune)
@@ -111,13 +125,29 @@ class RefreshService:
         except Exception:                             # noqa: BLE001
             return 0
 
-    def _detect_watchlist_events(self, res: RefreshResult,
-                                 detect_days: int, price_source: str) -> None:
+    def _watchlist(self):
         wl = self.watchlist_repo.load()
         if len(wl) == 0:
             self.watchlist_repo.seed_defaults()
             wl = self.watchlist_repo.load()
+        return wl
 
+    def _ingest_notices(self, res: RefreshResult, codes, days: int) -> None:
+        if self.notice_ingest is None:
+            return
+        for code in codes:
+            try:
+                st = self.notice_ingest.fetch(code, days=days)
+                res.notices.append(st.to_dict())
+            except Exception as e:                    # noqa: BLE001
+                if self.log:
+                    self.log(f"  [refresh] {code} 公告采集失败: {type(e).__name__}")
+                res.notices.append(dict(code=code, source="", fetched=0,
+                                        inserted=0, classified=0,
+                                        stopped_by=f"error:{type(e).__name__}"))
+
+    def _detect_watchlist_events(self, res: RefreshResult, wl,
+                                 detect_days: int, price_source: str) -> None:
         end = datetime.now().strftime("%Y-%m-%d")
         start = (datetime.now() - timedelta(days=detect_days)).strftime("%Y-%m-%d")
 
@@ -132,6 +162,8 @@ class RefreshService:
                 continue
             res.stocks_scanned += 1
             res.events_detected += len(events)
+            res.notice_events += sum(1 for e in events
+                                     if e.event_type.startswith("notice_"))
             if events:
                 try:
                     res.events_saved += self.event_repo.save_many(events)

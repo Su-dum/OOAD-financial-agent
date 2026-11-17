@@ -8,6 +8,7 @@
 因此 `returns_trustworthy = False`，ProviderChain 会在需要算收益率的场景跳过它。
 """
 from .base import BasePriceProvider, to_float
+from .akshare_compat import call as akcall
 from ...domain.models import PriceRecord, StockRef
 
 _ADJ = {"qfq": "qfq", "hfq": "hfq", "none": ""}
@@ -21,12 +22,12 @@ class EastmoneyProvider(BasePriceProvider):
     date_fmt = "%Y%m%d"
 
     def _request(self, ref: StockRef, start: str, end: str, adjust: str):
-        import akshare as ak
         adj = _ADJ.get(adjust)
         if adj is None:
             raise ValueError(f"adjust 只能是 {list(_ADJ)}，收到 {adjust}")
-        return ak.stock_zh_a_hist(symbol=ref.code, period="daily",
-                                  start_date=start, end_date=end, adjust=adj)
+        # akshare 1.20.44+ 把 stock_zh_a_hist 改名为 stock_zh_a_hist_em
+        return akcall("stock_zh_a_hist", symbol=ref.code, period="daily",
+                      start_date=start, end_date=end, adjust=adj)
 
     def _parse(self, raw, code: str, adjust: str) -> list[PriceRecord]:
         out = []

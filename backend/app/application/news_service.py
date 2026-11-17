@@ -97,6 +97,8 @@ class NewsIngestService:
                 st.stopped_by = "known"
                 break
             time.sleep(self.delay)
+        if not st.stopped_by:
+            st.stopped_by = "max_pages"      # 页数用尽（不是出错）
         return st
 
     # ---------------- 财联社回溯 ----------------
@@ -135,4 +137,6 @@ class NewsIngestService:
                 break
             last_time = int(datetime.strptime(oldest, "%Y-%m-%d %H:%M:%S").timestamp()) - 1
             time.sleep(self.delay)
+        if not st.stopped_by:
+            st.stopped_by = "max_pages"
         return st

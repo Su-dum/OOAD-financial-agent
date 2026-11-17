@@ -15,7 +15,7 @@ TRADING_DAYS = 252
 __all__ = [
     "daily_returns", "total_return", "annualized_return", "annualized_volatility",
     "max_drawdown", "downside_deviation", "sharpe", "sortino", "win_rate",
-    "percentile_rank", "analyze_series",
+    "percentile_rank", "analyze_series", "pearson", "beta", "tracking_error",
 ]
 
 
@@ -105,11 +105,16 @@ def max_drawdown(closes: Sequence[float]):
     return best, best_peak, best_trough
 
 
+# 浮点「零方差」阈值：50 个 0.01 的均值是 0.010000000000000002，标准差算出来约
+# 4e-19 而不是 0，使得夏普变成 4.5e16 这种无意义的数。用容差判定方差为零。
+_EPS = 1e-12
+
+
 def sharpe(rets: Sequence[float], rf: float = 0.0,
            periods: int = TRADING_DAYS) -> float | None:
     """夏普比率。rf 为**年化**无风险利率，内部换算成日频。"""
     sd = _stdev(rets)
-    if not sd or sd == 0:
+    if sd is None or sd < _EPS:            # 零波动 -> 夏普无定义
         return None
     excess_daily = _mean(rets) - rf / periods
     return excess_daily / sd * sqrt(periods)
@@ -118,7 +123,7 @@ def sharpe(rets: Sequence[float], rf: float = 0.0,
 def sortino(rets: Sequence[float], rf: float = 0.0,
             periods: int = TRADING_DAYS) -> float | None:
     dd = downside_deviation(rets, mar=rf / periods, periods=periods)
-    if not dd or dd == 0:
+    if dd is None or dd < _EPS:
         return None
     return (_mean(rets) - rf / periods) / dd * sqrt(periods)
 
@@ -131,6 +136,53 @@ def percentile_rank(series: Sequence[float], value: float) -> float | None:
         return None
     below = sum(1 for v in vals if v <= value)
     return below / len(vals)
+
+
+# ---------------------------------------------------------------- 跨资产（D3）
+def pearson(xs: Sequence[float], ys: Sequence[float]) -> float | None:
+    """皮尔逊相关系数。长度不等或方差为 0 时返回 None。
+
+    为什么不用 pandas.corr()：这条链路上层要能离线单测，
+    纯函数比 DataFrame 更容易验证（并且只差 30 行）。
+    """
+    n = min(len(xs), len(ys))
+    if n < 3:
+        return None
+    mx, my = _mean(xs[:n]), _mean(ys[:n])
+    sxy = sum((xs[i] - mx) * (ys[i] - my) for i in range(n))
+    sxx = sum((xs[i] - mx) ** 2 for i in range(n))
+    syy = sum((ys[i] - my) ** 2 for i in range(n))
+    if sxx <= 0 or syy <= 0:
+        return None
+    r = sxy / sqrt(sxx * syy)
+    return max(-1.0, min(1.0, r))          # 浮点误差可能给出 1.0000000000000002
+
+
+def beta(asset_rets: Sequence[float], bench_rets: Sequence[float]) -> float | None:
+    """相对基准的 beta（= cov(asset, bench) / var(bench)）。
+
+    1.2 表示基准涨 1% 时该资产平均涨 1.2%（放大波动）。
+    """
+    n = min(len(asset_rets), len(bench_rets))
+    if n < 3:
+        return None
+    ma, mb = _mean(asset_rets[:n]), _mean(bench_rets[:n])
+    cov = sum((asset_rets[i] - ma) * (bench_rets[i] - mb) for i in range(n)) / (n - 1)
+    var = sum((bench_rets[i] - mb) ** 2 for i in range(n)) / (n - 1)
+    if var <= 0:
+        return None
+    return cov / var
+
+
+def tracking_error(asset_rets: Sequence[float], bench_rets: Sequence[float],
+                   periods: int = TRADING_DAYS) -> float | None:
+    """跟踪误差：主动收益（asset - bench）的年化标准差。"""
+    n = min(len(asset_rets), len(bench_rets))
+    if n < 3:
+        return None
+    diff = [asset_rets[i] - bench_rets[i] for i in range(n)]
+    sd = _stdev(diff)
+    return None if sd is None else sd * sqrt(periods)
 
 
 # ---------------------------------------------------------------- 汇总

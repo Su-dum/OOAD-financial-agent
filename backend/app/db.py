@@ -43,6 +43,35 @@ def _has_trigram(con):
         return False
 
 
+def _table_columns(con, table: str) -> list:
+    try:
+        return [r[1] for r in con.execute(f"PRAGMA table_info({table})")]
+    except sqlite3.Error:
+        return []
+
+
+# 「后加的列」清单：CREATE TABLE IF NOT EXISTS 不会改已有表，老库必须显式补列
+_ADDED_COLUMNS = (
+    ("event", "source_url", "TEXT"),
+)
+
+
+def migrate(con) -> int:
+    """轻量迁移：老库缺列就补上，返回补了几列。
+
+    项目没有引入 alembic——只有一个 SQLite 文件、只加列不改类型，
+    用 PRAGMA 自检 + ALTER TABLE 足够，且天然幂等。
+    """
+    n = 0
+    for table, col, decl in _ADDED_COLUMNS:
+        cols = _table_columns(con, table)
+        if cols and col not in cols:
+            con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+            n += 1
+    con.commit()
+    return n
+
+
 def init_schema(con):
     con.executescript("""
     CREATE TABLE IF NOT EXISTS stock (
@@ -101,9 +130,27 @@ def init_schema(con):
         threshold   REAL,
         detail      TEXT,
         rule_name   TEXT,
+        source_url  TEXT,
         UNIQUE(code, event_type, trade_date, rule_name)
     );
     CREATE INDEX IF NOT EXISTS idx_event_code_date ON event(code, trade_date DESC);
+
+    -- 公告（B2 的数据底料）：类目来自公告类型 + 标题分类，详见 domain/notices.py
+    -- 之所以落本地库：公告是「事件触发的证据」，调查与回溯都要求可离线复现，
+    -- 而巨潮/东财公告接口有未文档化限频，不能让用户交互直接打外部接口。
+    CREATE TABLE IF NOT EXISTS notice (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        code         TEXT NOT NULL,
+        name         TEXT,
+        notice_type  TEXT,
+        title        TEXT NOT NULL,
+        published_at TEXT NOT NULL,
+        url          TEXT,
+        source       TEXT,
+        fetched_at   TEXT NOT NULL,
+        UNIQUE(code, title, published_at)
+    );
+    CREATE INDEX IF NOT EXISTS idx_notice_code_date ON notice(code, published_at DESC);
 
     -- 自选股（监控列表）：对应提案里的 Watchlist / MonitoringTask
     CREATE TABLE IF NOT EXISTS watchlist (
@@ -112,6 +159,17 @@ def init_schema(con):
         industry  TEXT,
         added_at  TEXT NOT NULL,
         note      TEXT
+    );
+
+    -- 预警规则配置（C1「用户可配置预警条件」）
+    -- code='' 是全局默认；code='600519' 是该股票的覆盖值。params 是规则参数 JSON。
+    CREATE TABLE IF NOT EXISTS alert_rule (
+        code       TEXT NOT NULL DEFAULT '',
+        rule_type  TEXT NOT NULL,
+        params     TEXT NOT NULL,
+        enabled    INTEGER NOT NULL DEFAULT 1,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (code, rule_type)
     );
 
     -- 调查报告（B3）：JSON 原文 + 冗余 markdown
@@ -158,6 +216,7 @@ def init_schema(con):
             print(f"[db] FTS5 已启用（tokenize={tok}）")
         except sqlite3.Error as e:
             print(f"[db] FTS5 建表失败，跳过：{e}")
+    migrate(con)          # 老库补后加的列（幂等）
     con.commit()
     return con
 

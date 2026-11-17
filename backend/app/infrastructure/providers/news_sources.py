@@ -142,36 +142,58 @@ def fetch_cls_page(last_time=None, rn=20, log=print):
 # ============================================================
 # 快照源（实时采集用，akshare 封装）
 # ============================================================
+def _field(row, *names, default=""):
+    """按候选列名取值。
+
+    akshare 改名时列名也可能跟着动（实测 `stock_info_global_em` ->
+    `stock_news_global_em` 就调整过列），这里做一层宽容读取，
+    比在调用处硬编码 `r["摘要"]` 抗造。
+    """
+    for n in names:
+        try:
+            if n in row.index:
+                v = row[n]
+                if v is not None and str(v).strip() not in ("", "nan", "None"):
+                    return v
+        except Exception:                              # noqa: BLE001
+            continue
+    return default
+
+
 def fetch_em_flash(log=print):
+    from .akshare_compat import call as akcall
+
     def _call():
-        import akshare as ak
-        df = ak.stock_info_global_em()
+        df = akcall("stock_info_global_em")
         out = []
         for _, r in df.iterrows():
-            content = str(r["摘要"]).strip()
-            title = str(r["标题"]).strip() or content[:40]
+            content = str(_field(r, "摘要", "内容", "content")).strip()
+            title = str(_field(r, "标题", "title")).strip() or content[:40]
             out.append(dict(source="em_flash", channel="快讯",
                             title=title,
                             content=content or None,
-                            published_at=_iso(r["发布时间"]),
-                            url=r.get("链接")))
+                            published_at=_iso(_field(r, "发布时间", "时间")),
+                            url=_field(r, "链接", "网址", default=None)))
         return out
     return _retry(_call, "em_flash", log=log)
 
 
 def fetch_cls_snapshot(log=print):
+    from .akshare_compat import call as akcall
+
     def _call():
-        import akshare as ak
-        df = ak.stock_info_global_cls(symbol="全部")
+        df = akcall("stock_info_global_cls", symbol="全部")
         out = []
         for _, r in df.iterrows():
-            content = str(r["内容"]).strip()
+            content = str(_field(r, "内容", "content")).strip()
             # 电报里有些条目只有正文没有标题，用正文前 40 字兜底
-            title = str(r["标题"]).strip() or content[:40]
+            title = str(_field(r, "标题", "title")).strip() or content[:40]
             out.append(dict(source="cls_live", channel="电报",
                             title=title,
                             content=content or None,
-                            published_at=_iso(f"{r['发布日期']} {r['发布时间']}"),
+                            published_at=_iso(
+                                f"{_field(r, '发布日期', '日期')} "
+                                f"{_field(r, '发布时间', '时间')}".strip()),
                             url=None))
         return out
     return _retry(_call, "cls_snapshot", log=log)

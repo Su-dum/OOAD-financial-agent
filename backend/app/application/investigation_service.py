@@ -20,6 +20,7 @@ from typing import Optional, Protocol, Sequence
 from ..domain.events import MarketEvent
 from ..domain.investigation import (Evidence, InvestigationReport,
                                     InvestigationTask)
+from ..domain.notices import classify_notice, clean_title
 from .analysis_service import FinancialAnalyzer
 
 
@@ -74,30 +75,74 @@ class NewsSearchTool:
 
 
 class NoticeSearchTool:
-    """从巨潮检索公告；deep=True 时下载 PDF 抽正文作为引用片段。"""
+    """检索公告作为证据。
+
+    取数顺序：**本地公告库 -> 外部源**。
+      - 本地库是 B2 采集时落下的同一批公告，点「调查」不该再打外部接口
+      - 本地为空（比如新加的标的还没刷新过）才回落到公告 Provider
+      - deep=True 时下载 PDF 正文抽片段；只有外部源能取正文
+    """
 
     name = "notice_search"
     kind = "notice"
 
-    def __init__(self, notice_provider, limit: int = 5, deep: bool = False, log=print):
+    def __init__(self, notice_provider=None, repo=None, limit: int = 5,
+                 deep: bool = False, log=print):
         self.provider = notice_provider
+        self.repo = repo
         self.limit = limit
         self.deep = deep
         self.log = log
 
-    def run(self, code, start, end, context=None) -> list[Evidence]:
+    def _from_local(self, code, start, end) -> list[dict]:
+        if self.repo is None:
+            return []
+        try:
+            return self.repo.find_by_stock(code, start=start, end=end,
+                                           limit=self.limit) or []
+        except Exception as e:                             # noqa: BLE001
+            if self.log:
+                self.log(f"  [notice] 本地公告读取失败: {type(e).__name__}")
+            return []
+
+    def _from_provider(self, code, start, end) -> list[dict]:
         if self.provider is None:
             return []
-        items = self.provider.list_notices(code, start, end, limit=self.limit)
+        try:
+            return self.provider.list_notices(code, start, end, limit=self.limit) or []
+        except Exception as e:                             # noqa: BLE001
+            if self.log:
+                self.log(f"  [notice] 外部公告检索失败: {type(e).__name__}")
+            return []
+
+    def run(self, code, start, end, context=None) -> list[Evidence]:
+        items = self._from_local(code, start, end)
+        from_local = bool(items)
+        if not items:
+            items = self._from_provider(code, start, end)
+        items = items[:self.limit]
+
         out = []
         for it in items:
+            title = clean_title(it.get("title") or "", it.get("name") or "")
             excerpt = ""
-            if self.deep and it.get("url"):
+            cat = classify_notice(it.get("notice_type") or "", title)
+            if cat is not None:
+                excerpt = f"公告类别：{cat.label}"
+            if self.deep and not from_local and it.get("url") and self.provider is not None:
                 text = self.provider.fetch_text(it["url"], max_pages=5)
-                excerpt = " ".join(text.split())[:300] if text else ""
+                if text:
+                    excerpt = (" ".join(text.split())[:300] + " "
+                               + (f"（{excerpt}）" if excerpt else "")).strip()
+            raw_source = (it.get("source") or "").strip()
+            if from_local:
+                source = {"eastmoney": "东财公告", "cninfo": "巨潮资讯"}.get(
+                    raw_source, "本地公告库")
+            else:
+                source = "巨潮资讯" if raw_source == "cninfo" else "公告源"
             out.append(Evidence(
-                kind=self.kind, source="巨潮资讯",
-                title=it.get("title") or "",
+                kind=self.kind, source=source,
+                title=(f"[{cat.label}] {title}" if cat is not None else title),
                 url=it.get("url"),
                 published_at=it.get("published_at"),
                 excerpt=excerpt, confidence=1.0))
@@ -199,7 +244,11 @@ class InvestigationAgent:
     def _build_facts(self, report: InvestigationReport, start: str, end: str) -> None:
         ev = report.event
         if ev is not None:
-            report.add_fact(f"{ev.trade_date} 检测到 {ev.event_type}：{ev.detail}")
+            detail = (ev.detail or "").strip()
+            # 公告类事件的 detail 本来就以类别开头（"财报披露：…"），别把标签再拼一遍
+            head = detail if detail.startswith(ev.label) else (
+                f"{ev.label}：{detail}" if detail else ev.label)
+            report.add_fact(f"{ev.trade_date} {head}")
         news = report.evidence_by_kind("news")
         notices = report.evidence_by_kind("notice")
         inds = report.evidence_by_kind("indicator")

@@ -107,6 +107,21 @@ class EventRepository(Protocol):
 
 
 @runtime_checkable
+class NoticeRepository(Protocol):
+    """公告持久化。
+
+    B2 的公告事件检测要读它；B3 的证据检索也读它（本地优先，不打外部接口）。
+    """
+
+    def save_many(self, items: Sequence[dict]) -> int:
+        ...
+
+    def find_by_stock(self, code: str, start: Optional[str] = None,
+                      end: Optional[str] = None, limit: int = 200) -> list[dict]:
+        ...
+
+
+@runtime_checkable
 class ReportRepository(Protocol):
     """调查报告持久化。"""
 

@@ -13,16 +13,22 @@ router = APIRouter(prefix="/api", tags=["maintenance"])
 # ============================================================
 # 一键更新
 # ============================================================
-@router.post("/refresh", summary="一键更新：新闻增量 + 快照 + 自选股事件 + 清理")
+@router.post("/refresh", summary="一键更新：新闻增量 + 公告增量 + 快照 + 自选股事件 + 清理")
 def refresh(news_days: float = Query(2, ge=0.5, le=30),
             max_pages: int = Query(12, ge=1, le=60),
             detect_days: int = Query(90, ge=5, le=400),
+            include_notices: bool = Query(True, description="是否采集公告"),
+            notice_days: int = Query(400, ge=30, le=2000),
+            max_notice_stocks: int = Query(12, ge=0, le=50),
             prune: bool = Query(True),
             dry_run_prune: bool = Query(False)):
     svc = get_services()
     res = svc.refresh.run(news_days=news_days, max_pages=max_pages,
-                          detect_days=detect_days, prune=prune,
-                          dry_run_prune=dry_run_prune)
+                          detect_days=detect_days,
+                          include_notices=include_notices,
+                          notice_days=notice_days,
+                          max_notice_stocks=max_notice_stocks,
+                          prune=prune, dry_run_prune=dry_run_prune)
     return res.to_dict()
 
 

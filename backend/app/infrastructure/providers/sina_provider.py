@@ -7,6 +7,7 @@
 2026-10-28 实测：东财、baostock 双双不可用时，它仍然 2.4s 取到 3 年 923 行。
 """
 from .base import BasePriceProvider, to_float
+from .akshare_compat import call as akcall
 from ...domain.models import PriceRecord, StockRef
 
 _ADJ = {"qfq": "qfq", "hfq": "hfq", "none": ""}
@@ -20,12 +21,13 @@ class SinaProvider(BasePriceProvider):
     date_fmt = "%Y%m%d"
 
     def _request(self, ref: StockRef, start: str, end: str, adjust: str):
-        import akshare as ak
         adj = _ADJ.get(adjust)
         if adj is None:
             raise ValueError(f"adjust 只能是 {list(_ADJ)}，收到 {adjust}")
-        return ak.stock_zh_a_daily(symbol=ref.sina_code, start_date=start,
-                                   end_date=end, adjust=adj)
+        # akshare 1.20.44+ 把 stock_zh_a_daily 改名为 stock_zh_a_hist_sina，
+        # 参数不变，由 compat 层解析（见 akshare_compat.py）
+        return akcall("stock_zh_a_daily", symbol=ref.sina_code, start_date=start,
+                      end_date=end, adjust=adj)
 
     def _parse(self, raw, code: str, adjust: str) -> list[PriceRecord]:
         out = []
