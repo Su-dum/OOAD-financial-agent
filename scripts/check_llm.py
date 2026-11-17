@@ -19,6 +19,10 @@ import argparse
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _console import enable_utf8                                      # noqa: E402
+
+enable_utf8()
 
 from backend.app.infrastructure.llm.client import (PRESETS, LLMConfig, LLMError,
                                                   OpenAIChatClient, load_dotenv)

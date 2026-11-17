@@ -1,12 +1,13 @@
 # 金融分析与监控智能体（A 股）
 
-面向中国 A 股市场的金融分析、事件监控与基于证据的 AI 调查智能体。
+面向中国 A 股市场的金融分析、事件监控、跨资产对比与基于证据的 AI 调查 / 追问智能体。
 
 - 作业要求：`Financial-Analysis-and-Monitoring-Agent.pdf`（**基础 70% + 高级 30%**）
 - 方案文档：`OOAD Project Proposal Report.docx`
 - **架构说明：[`docs/architecture.md`](docs/architecture.md)**
+- **交接文档：[`HANDOFF.md`](HANDOFF.md)** —— 需求核对、缺口清单、踩坑记录（新对话先读这个）
 
-**核心特点**：所有 AI 结论都带**证据编号引用**，编造的引用会被拦截并退回模板——
+**核心特点**：所有 AI 结论（调查报告与追问）都带**证据编号引用**，编造的引用会被拦截并退回模板——
 防幻觉靠的是结构与校验，不是提示词。
 
 ---
@@ -23,23 +24,41 @@
 | 行情 Provider（三源降级，无 if/elif） | ✅ | `infrastructure/providers/` |
 | **指标计算（A1 / A2 / A3）** | ✅ 已交叉验证 | `core/` + `application/` |
 | 新闻采集 + 新闻↔股票关联 | ✅ 15,089 条 / 9,093 关联 | `infrastructure/` |
-| 公告 Provider（巨潮列表 + PDF 正文） | ✅ | `cninfo_provider.py` |
-| **事件检测（B2 / D1）** | ✅ 阈值 / 放量 / z-score | `domain/events.py` |
+| 公告采集（东财列表 + 巨潮 PDF） | ✅ | `eastmoney_notice_provider` + `cninfo_provider` |
+| **事件检测（B2 / D1）：行情类 + 公告类** | ✅ 涨跌幅 / 放量 / z-score / **财报·分红·回购·增减持·重大交易·澄清·监管** | `domain/events.py` + `domain/notices.py` |
 | **事件调查（B3 / D2）** | ✅ LLM 归纳 + 引用校验 | `llm_conclusion.py` |
-| **一键更新 + 保留策略** | ✅ 按钮刷新 + 90 天自动裁剪 | `refresh_service.py` |
-| **FastAPI 接口** | ✅ 17 个端点 | `api/routes/` |
-| **React 前端** | ✅ 指标 / 事件 / 报告 / 一键更新 | `frontend/` |
-| D3 跨资产 / D4 情景分析 | ⬜ 数据齐，逻辑未写 | — |
+| **可配置预警条件（C1）** | ✅ 三级合并（默认/全局/个股）+ 参数校验 | `alert_config_service.py` |
+| **自然语言追问（C2）** | ✅ 意图路由 + 证据编号 + 条件修改 | `conversation_service.py` |
+| **图表（C3）** | ✅ 手写 SVG：走势图 / 相对表现 / 相关性热力表 | `frontend/src/components/` |
+| **跨资产分析（D3）** | ✅ 净值 / 相关系数 / 基准 β / 跟踪误差 | `cross_asset_service.py` |
+| 一键更新 + 保留策略 | ✅ 按钮刷新 + 90 天自动裁剪 | `refresh_service.py` |
+| **FastAPI 接口** | ✅ 26 个路径 | `api/routes/` |
+| **React 前端** | ✅ 指标 / 图表 / 事件 / 报告 / 追问 / 跨资产 / 预警条件 | `frontend/` |
+| D4 情景分析 | ⬜ 数据齐，逻辑未写 | — |
+| D2 真·动态多步调查 | 🟡 形式满足（固定流水线，非 ReAct） | `investigation_service.py` |
+| 财务数据 Provider（A1 补全） | 🟡 目前用申万映射表静态快照 | `catalog.py` |
 | 需求用户故事 / UML | ⬜ | — |
 
-指标实测（贵州茅台，2023-10-30 ~ 2026-10-27，前复权）：
+指标实测（贵州茅台，2023-11-20 ~ 2026-11-16，724 个交易日，前复权 / baostock）：
 
 | 累计收益 | 年化波动率 | 最大回撤 | PE(TTM) | ROE |
 |---|---|---|---|---|
-| −10.21% | 23.24% | −28.21% | 20.81 | 17.95% |
+| −8.18% | 23.34% | −27.92% | 22.12 | 17.95% |
 
-**验证**：68 个测试（19 指标 + 18 架构 + 15 LLM + 4 并发 + 12 运维）+ pandas 独立实现交叉验证
-（5 项对齐到 `1e-9`）+ 复权恒等式检验。
+（`python scripts/verify_indicators.py` 每次运行会按「最近 3 年」重新取数并打印上表，
+同时输出与 pandas 实现的逐项对照。）
+
+跨资产实测（2026-11-17，242 个共同交易日，基准沪深300）：
+
+| 标的 | 区间收益 | 年化波动 | β | 与基准相关 |
+|---|---|---|---|---|
+| 600519 贵州茅台 | +2.90% | 23.43% | −0.037 | −0.028 |
+| 000001 平安银行 | +11.26% | 16.74% | 0.010 | 0.010 |
+| 300750 宁德时代 | −37.27% | 37.89% | 1.023 | 0.482 |
+
+**验证**：180 个测试（40 公告 + 23 追问 + 21 预警 + 19 指标 + 18 架构 + 17 跨资产
++ 14 LLM + 13 运维 + 6 采集 + 5 兼容 + 4 并发）+ pandas 独立实现交叉验证
+（5 项指标对齐 `1e-9`，相关系数/β 与 pandas 完全一致）+ 复权恒等式检验。
 
 ---
 
@@ -49,56 +68,67 @@
 ├── backend/app/
 │   ├── domain/                 # 领域层：不认识框架与数据库
 │   │   ├── models.py           #   StockRef / PriceRecord / PriceSeries / IndicatorSet
-│   │   ├── ports.py            #   抽象契约：PriceProvider / Repository ...
-│   │   ├── events.py           #   MarketEvent + AlertRule 策略族
+│   │   ├── ports.py            #   抽象契约：PriceProvider / Repository / NoticeRepository ...
+│   │   ├── events.py           #   MarketEvent + AlertRule 族 + NoticeRule 族
+│   │   ├── notices.py          #   公告 → 事件分类（87 种类型 -> 11 类）
 │   │   ├── investigation.py    #   Evidence / InvestigationReport
 │   │   ├── watchlist.py        #   WatchItem / Watchlist（聚合根）
 │   │   └── entity_linking.py   #   新闻 → 股票 实体链接
-│   ├── core/indicators.py      # 纯函数指标计算（无 I/O，可单测）
+│   ├── core/indicators.py      # 纯函数：收益/风险/估值 + 相关系数/beta/跟踪误差
 │   ├── application/            # 应用层：只依赖抽象
 │   │   ├── market_service.py   #   ProviderChain + MarketDataService
 │   │   ├── analysis_service.py #   FinancialAnalyzer
-│   │   ├── monitoring_service.py   # EventMonitor
-│   │   ├── investigation_service.py # InvestigationAgent + 3 个工具
+│   │   ├── cross_asset_service.py  # CrossAssetAnalyzer（D3）
+│   │   ├── monitoring_service.py   # EventMonitor（两条规则链）
+│   │   ├── alert_config_service.py # AlertConfigService（C1 三级配置）
+│   │   ├── investigation_service.py# InvestigationAgent + 3 个工具
+│   │   ├── conversation_service.py # ConversationAgent（C2 追问）
 │   │   ├── llm_conclusion.py   #   结论策略：模板 / LLM（含引用校验）
-│   │   ├── news_service.py     #   新闻采集（回溯 + 快照），脚本与 API 共用
+│   │   ├── notice_service.py   #   公告采集（东财 → 巨潮 降级）
+│   │   ├── news_service.py     #   新闻采集（回溯 + 快照）
 │   │   ├── maintenance_service.py  # 保留策略与裁剪
 │   │   └── refresh_service.py  #   一键刷新编排
 │   ├── infrastructure/         # 基础设施层：实现 ports
-│   │   ├── providers/          #   baostock / sina / eastmoney / cninfo / 新闻源
-│   │   ├── repositories/       #   news / event / report / watchlist 仓储
+│   │   ├── providers/          #   baostock / sina / eastmoney / cninfo / 公告 / 指数 / 新闻源
+│   │   │                       #   + akshare_compat（改名兼容）+ pdf_utils
+│   │   ├── repositories/       #   news / event / report / watchlist / notice / alert_rule
 │   │   ├── llm/client.py       #   OpenAI 兼容客户端（DeepSeek / OpenAI）
 │   │   ├── catalog.py          #   申万映射（5229 只）
 │   │   └── providers/cache.py  #   CSV 行情缓存
 │   ├── api/                    # 接口层
 │   │   ├── app.py  deps.py     #   FastAPI 装配 + Composition Root
-│   │   └── routes/             #   stocks / events / maintenance
-│   └── db.py                   # SQLite 建表（新闻 / 事件 / 报告 / 自选股）
+│   │   └── routes/             #   stocks / events / notices / alerts / chat / maintenance
+│   └── db.py                   # SQLite 建表 + 轻量迁移（notice / alert_rule / event.source_url）
 ├── frontend/src/
-│   ├── models/index.ts         # 与后端 DTO 对应的视图对象
-│   ├── services/               # HttpClient / Stock / Event / Report / Maintenance
-│   └── components/             # StockSearch / IndicatorPanel / EventList
+│   ├── models/index.ts         # 与后端 DTO 对应的视图对象（含图表/跨资产/追问/预警）
+│   ├── services/               # HttpClient / Stock / Event / Report / Maintenance / Chat / Alert
+│   └── components/             # StockSearch / IndicatorPanel / PriceChart / EventList
 │                               # ReportView / RefreshBar / WatchlistEvents
+│                               # CrossPanel / NetValueChart / CorrelationMatrix
+│                               # ChatPanel / AlertConfig
 ├── docs/
 │   ├── architecture.md         # ★ 分层、类职责、设计模式
 │   ├── datasource-eval.md      # 数据源评估（所有实测数字）
 │   ├── news-pipeline.md        # 新闻采集与关联
+│   ├── notices.md              # ★ 公告事件（B2）：87 种类型 -> 11 类的映射与坑
+│   ├── cross-asset.md          # ★ 跨资产分析（D3）：对齐、相关、β
+│   ├── conversation.md         # ★ 追问与预警配置（C2 / C1）
 │   ├── indicators.md           # 指标公式与验证
 │   ├── llm.md                  # LLM 接入与防幻觉
 │   └── data-lifecycle.md       # ★ 保留策略与一键更新
 ├── scripts/
 │   ├── run_api.py              # 启动后端 API
-│   ├── build_industry_map.py   # 建申万映射表
+│   ├── build_industry_map.py   # 建申万映射表（需 akshare<1.20.44，见下文）
 │   ├── backfill_news.py        # 新闻回溯（--auto / --prune / --stats）
 │   ├── run_collector.py        # 实时新闻采集
 │   ├── verify_indicators.py    # 指标验收
 │   ├── check_llm.py            # LLM 连通性与抗幻觉自检
 │   └── probes/                 # 11 个数据源探针 + outputs/
-├── tests/                      # 5 个测试文件，68 个用例
+├── tests/                      # 11 个测试文件，180 个用例
 ├── data/
 │   ├── seed/                   # ✅ 提交：行业结构、股票映射 CSV
 │   ├── cache/market/           # ⛔ 忽略：行情缓存
-│   ├── news.db                 # ⛔ 忽略：应用库（新闻/事件/报告/自选股）
+│   ├── news.db                 # ⛔ 忽略：应用库（新闻/公告/事件/报告/自选股/预警配置）
 │   └── sw_industry.db          # ⛔ 忽略：行业库
 ├── requirements.txt
 ├── .env.example                # 配置模板（key 填到 .env，不入库）
@@ -130,7 +160,7 @@ LLM_MODEL=deepseek-flash
 LLM_FALLBACK_MODEL=deepseek-v4-pro
 ```
 
-不配也能跑——结论退回模板拼接，报告里会明确标注来源。
+不配也能跑——结论与追问都退回模板拼接，界面会明确标注「模板答案 / LLM 降级」。
 
 ### 2. 后端
 
@@ -147,8 +177,8 @@ pnpm install                  # 或 npm install
 pnpm dev                      # http://127.0.0.1:5173
 ```
 
-打开后点「更新数据」→ 自动采集新闻、检测自选股事件、清理旧数据（约 8 秒），
-然后就能看到事件列表，点「调查」生成带引用编号的报告。
+打开后点「更新数据」→ 采集新闻 + **公告**、检测自选股事件（行情类 + 公告类）、清理旧数据，
+然后就能看到事件列表，点「调查」生成带引用编号的报告，或在「追问」里自由提问。
 
 也可直接 `http://127.0.0.1:5173/?code=600519` 指定标的。
 
@@ -163,25 +193,38 @@ python scripts/backfill_news.py --auto    # 新闻回溯补齐
 python scripts/backfill_news.py --stats   # 看库现状与保留策略
 python scripts/backfill_news.py --prune   # 按保留策略清理
 
-python -m pytest tests -q                 # 68 个测试
+python -m pytest tests -q                 # 173 个测试
 python scripts/verify_indicators.py       # 指标验收（命中缓存，秒级）
 ```
 
+> ⚠️ `build_industry_map.py` 依赖的 `sw_index_first_info` 在 akshare ≥1.20.44 已被移除/改名，
+> 重建映射需要装旧版 akshare 或改脚本；`data/seed/` 里的映射表已提交，**日常运行不需要重建**。
+
 ---
 
-## 主要接口（17 个）
+## 主要接口（26 个路径）
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/api/health` | 健康检查（数据源 / 股票数 / 新闻数 / LLM / 保留策略） |
+| GET | `/api/health` | 健康检查（数据源 / 股票数 / 新闻 / 公告 / LLM / 保留策略） |
 | GET | `/api/stocks/{code}/indicators` | 区间指标（A1/A2） |
+| GET | `/api/stocks/{code}/series` | **图表数据**：收盘价 + 成交量 + 估值（已抽样） |
 | GET | `/api/stocks/compare?codes=600519,000001` | 跨标的比较（A3） |
-| GET | `/api/stocks/{code}/events` | 事件检测（B2/D1） |
+| GET | `/api/stocks/{code}/periods` | **跨期比较**：近 1/3/6/12/24 个月（A3） |
+| GET | `/api/stocks/cross?codes=...` | **跨资产分析**：净值 / 相关性 / 基准 β（D3） |
+| GET | `/api/stocks/{code}/events` | 事件检测（B2/D1，行情类 + 公告类） |
 | POST | `/api/stocks/investigate` | 发起事件调查（B3/D2） |
-| **POST** | **`/api/refresh`** | **一键更新：新闻+快照+自选股事件+清理** |
+| **POST** | **`/api/refresh`** | **一键更新：新闻 + 公告 + 快照 + 自选股事件 + 清理** |
 | GET · POST · DELETE | `/api/watchlist` · `/api/watchlist/{code}` | 自选股增删查 |
 | GET | `/api/events/watchlist` | 自选股已落库事件 |
 | GET | `/api/events` | 全部已入库事件 |
+| GET | `/api/notices` | **本地公告列表**（不联网） |
+| POST | `/api/notices/{code}/refresh` | **刷新公告并重算事件** |
+| GET | `/api/notices/categories` | 公告类别映射表 |
+| GET · PUT | `/api/alerts` | **预警条件读 / 改**（默认→全局→个股三级） |
+| DELETE | `/api/alerts/{rule_type}` | 删除覆盖值，退回默认 |
+| POST | `/api/chat` | **自然语言追问 / 交互式改条件**（C2/C1） |
+| GET | `/api/chat/suggestions` | 追问示例 |
 | GET | `/api/reports` · `/api/reports/{id}` | 调查报告列表 / 详情 |
 | GET | `/api/maintenance/stats` | 数据量与保留策略 |
 | POST | `/api/maintenance/prune` | 手动裁剪（支持 `dry_run`） |
@@ -199,27 +242,40 @@ python scripts/verify_indicators.py       # 指标验收（命中缓存，秒级
 2. **行情有三源降级：baostock → 新浪 → 东财。**
    新浪的 qfq 口径已验证正确（偏差 6.95e-06，只是舍入噪声）。
 
-3. **新闻不可回查，但能事后补。** 东财可翻 200 天、财联社 180 天，
+3. **公告是「事件」也是「证据」，但只落一次库。**
+   东财给类型（分类依据），巨潮给 PDF 正文（引用依据）；两个源按顺序降级，
+   同一批公告同时喂给 B2（事件）与 B3（证据），用户交互永远只读本地库。
+
+4. **87 种公告类型映射到 11 个类别，30% 是噪音。**
+   东财实测 229 条类型是 `股票`、110 条是 `其他`，真信号只在标题里；
+   制度类公告（含「关联交易」字样）必须靠**硬噪音表**先拦掉，否则会误报重大交易。
+
+5. **新闻与公告都不能回溯很久，但能事后补。** 东财新闻可翻 200 天、财联社 180 天，
    所以不必 7×24 采集，定期 `backfill_news.py --auto` 即可。
 
-4. **行业统一用申万一级 31 个。** 三套体系互不兼容，混用会让跨行业分析错乱。
+6. **行业统一用申万一级 31 个。** 三套体系互不兼容，混用会让跨行业分析错乱。
 
-5. **缓存是必需品不是优化。** baostock 单次查询实测从 3 秒恶化到 57 秒甚至挂起。
+7. **缓存是必需品不是优化。** baostock 单次查询实测从 3 秒恶化到 57 秒甚至挂起。
 
-6. **新闻必须设保留期。** 约 300 条/天、2,845 字节/条，一年就是 300 MB+；
-   而调查只用得到最近几十天。默认新闻 90 天、事件 180 天、报告永久。
+8. **akshare 在 1.20.44 起批量改名**（`stock_zh_a_hist` → `stock_zh_a_hist_em` 等），
+   而 requirements 只锁下限。项目加了 `akshare_compat` 兼容层，
+   新旧版本都能跑——不加这层，重装依赖后取数会全挂，且离线单测看不出来。
 
-7. **推理模型的 `max_tokens` 必须给足。** `deepseek-v4-pro` 的思考过程也算 token，
-   给少了会 `finish_reason=length` 且 `content` 为空（默认已设 2500）。
+9. **零方差夏普是静默错误。** `sharpe([0.01]*50)` 在 Python 3.11 下曾算出 `4.5e16`
+   （浮点均值误差让标准差 ≈4e-19 而非 0）。已用 `1e-12` 容差判定，并有单测锁住。
+
+10. **LLM 网关会抖（503），但演示不会中断。** 瞬时错误退避重试 → 备用模型 →
+    模板兜底，三层都在，且降级原因会写进响应。
 
 ---
 
 ## 接下来要做
 
-1. **D3 跨资产分析** —— 指数与行业数据源已验证（指数 4 源 / 行业 3 源），接进 `FinancialAnalyzer` 即可
-2. **D4 情景分析**
-3. **需求用户故事 + UML** —— 代码结构已稳定，可直接照 `docs/architecture.md` 画
-4. **前端补监控列表页** —— 目前自选股只在内嵌面板，缺独立页面
+1. **D4 情景分析** —— 「波动率/回撤假设冲击」推演，复用现有指标与跨资产计算
+2. **D2 真·动态多步调查** —— 现在是一次跑完 3 个工具；要改成 ReAct 循环（模型决定下一步）
+3. **财务数据 Provider** —— 探针已验证「新浪财务指标 86 列」，封装后 A1 可拿满分
+4. **行业级监控 + 行业指数联动** —— 申万 31 个行业指数已验证可用（`docs/datasource-eval.md` §10.2）
+5. **需求用户故事 + UML** —— 代码结构已稳定，可直接照 `docs/architecture.md` 画
 
 ### 暂缓的优化（不急，别忘）
 
@@ -242,7 +298,7 @@ python scripts/verify_indicators.py       # 指标验收（命中缓存，秒级
 ## 提醒
 
 - 全部用免费源（`akshare` + `baostock` + 新浪 + 巨潮），不用花钱
-- 财务是季频、行情是日频、新闻是流式，**三种时间粒度不一样**，别混
+- 财务是季频、行情是日频、公告是事件驱动、新闻是流式，**四种时间粒度不一样**，别混
 - 任何指标都要能说清「哪个源、什么复权口径、什么时间段」，报告里必须标注
 - A 股老坑：复权、停牌、ST、涨跌停、退市，都要单独处理
 - 东财 / legulegu 都有未文档化限频，所有 Provider 必须带退避重试

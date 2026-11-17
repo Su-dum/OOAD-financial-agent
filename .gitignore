@@ -111,3 +111,6 @@ pnpm-debug.log*
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# temporary venv used for acceptance testing
+.venv-*/

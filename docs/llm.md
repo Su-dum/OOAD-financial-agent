@@ -223,9 +223,11 @@ LLMConclusionWriter（带校验）
 | `infrastructure/llm/client.py` | `LLMConfig`、`OpenAIChatClient`（同时支持 DeepSeek/OpenAI）、`.env` 加载 |
 | `application/llm_conclusion.py` | `ConclusionWriter` 协议、`TemplateConclusionWriter`、`LLMConclusionWriter`（校验逻辑） |
 | `application/investigation_service.py` | `InvestigationAgent` 通过策略注入结论写作者 |
+| `application/conversation_service.py` | 追问：意图路由 + 证据编号 + 引用校验 + 模板兜底 |
 | `api/deps.py` | 读环境变量装配：有 key 就用 LLM，没有就模板 |
 | `scripts/check_llm.py` | 连通性与抗幻觉自检 |
 | `tests/test_llm.py` | 14 个离线测试（含幻觉引用拦截） |
+| `tests/test_chat.py` | 23 个离线测试（追问的引用校验与降级） |
 
 ## 七、测试怎么保证不瞎跑
 
@@ -244,7 +246,45 @@ LLMConclusionWriter（带校验）
 | 证据 1 条 + 模型说 0.99 | 置信度被截断 |
 | `insufficient_evidence=true` | 置信度 ≤ 0.5 |
 
-## 八、已知限制与后续
+## 八、追问场景（C2）的 LLM 用法
+
+调查报告与自然语言追问**共用同一套防幻觉规则**，但 prompt 结构不同：
+
+| | 调查报告（B3） | 追问（C2） |
+|---|---|---|
+| 触发 | 点「调查」 | 用户自由提问 |
+| 证据来源 | 三个调查工具 | 指标 + 事件 + 公告 + 新闻（本地库） |
+| 上下文 | 事件 + 事实 | 事件 + 对话历史（最近 4 轮）+ 已执行的配置变更 |
+| 输出 | `conclusion` / `confidence` | `answer` / `cited_evidence_ids` / `insufficient_evidence` |
+| 失败兜底 | 模板结论 | 模板答案（同样带 `[n]` 编号） |
+
+规则不变：**编号真实存在**、**有证据必须引用**、**证据不足要直说**、
+**不要把相关性说成因果**。任何一条不满足 -> 整段退回模板，并记录降级原因。
+
+### 实测：网关 503 时的完整降级链
+
+2026-11-17 学校网关返回 `HTTP 503 Service temporarily unavailable`：
+
+```
+[llm] 瞬时错误（HTTP 503）第 1~4 次，退避 2/4/6/8s
+[llm] deepseek-flash 失败，降级到备用模型 deepseek-v4-pro
+[llm] 瞬时错误（HTTP 503）第 1~4 次
+[chat] LLM 调用失败，退回模板: LLMError
+```
+
+响应里 `llm_meta.reason` 保留了原始异常，前端显示「LLM 降级」徽标，
+答案仍是完整的中文结论（模板 + 证据编号）。**演示不会因为网关抖动中断。**
+
+### 代码位置
+
+| 文件 | 职责 |
+|---|---|
+| `application/conversation_service.py` | 意图路由、证据快照、模板答案、引用校验、动作解析 |
+| `api/routes/chat.py` | 追问接口 + 服务端动作执行（预警配置 / 自选股） |
+| `frontend/src/components/ChatPanel.tsx` | 对话界面、引用高亮、动作结果提示 |
+| `tests/test_chat.py` | 23 个离线测试 |
+
+## 九、已知限制与后续
 
 | 限制 | 说明 |
 |---|---|

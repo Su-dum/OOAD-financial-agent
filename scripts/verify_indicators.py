@@ -22,6 +22,10 @@ from datetime import datetime, timedelta
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _console import enable_utf8                                      # noqa: E402
+
+enable_utf8()
 
 from backend.app.core import indicators as ind                        # noqa: E402
 from backend.app.infrastructure.catalog import CsvStockCatalog        # noqa: E402
