@@ -61,6 +61,8 @@ class MarketEvent:
     rule_name: str = ""
     # 公告类事件带上原始公告链接，配合 C4「证据可追溯」
     source_url: Optional[str] = None
+    # 事件作用域：stock（个股）/ industry（申万行业指数）
+    scope: str = "stock"
 
     @property
     def label(self) -> str:

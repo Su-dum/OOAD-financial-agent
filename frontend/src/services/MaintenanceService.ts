@@ -32,16 +32,28 @@ export interface NoticeIngestStat {
   stopped_by: string;
 }
 
+export interface FinancialIngestStat {
+  code: string;
+  source: string;
+  report_date: string;
+  updated: boolean;
+  stopped_by: string;
+}
+
 export interface RefreshResult {
   started_at: string;
   elapsed_sec: number;
   news: IngestStat[];
   notices?: NoticeIngestStat[];
+  financials?: FinancialIngestStat[];
   events_detected: number;
   events_saved: number;
   notice_events?: number;
   stocks_scanned: number;
   failed_stocks: string[];
+  industry_events?: { scanned: number; events_detected: number; events_saved: number };
+  auto_reports?: { report_id: number; code: string; trade_date: string; event_type: string }[];
+  auto_failed?: { code: string; trade_date: string; error: string }[];
   prune: PruneResult | { error: string };
   news_total_before: number;
   news_total_after: number;

@@ -2,12 +2,16 @@
  * 应用根组件：只负责状态编排，业务逻辑都在 services 里。
  *
  * 页面结构：
- *   1. 「更新数据」按钮 —— 一键刷新新闻 + 公告 + 自选股事件 + 清理
+ *   1. 「更新数据」按钮 —— 一键刷新新闻 + 公告 + 财务 + 事件 + 自动调查 + 清理
  *   2. 自选股事件面板 —— 已落库的事件，可直接点「调查」
- *   3. 个股分析 —— 区间切换 + 指标 + 走势图 + 预警条件 + 事件
- *   4. 跨资产对比 —— 相对表现 / 相关性 / 相对基准
- *   5. 追问 —— 自然语言提问与条件修改
- *   6. 调查报告 —— 事实/推测分栏 + 证据编号
+ *   3. 个股分析 —— 区间切换 + 指标（含财务快照）+ 走势图
+ *   4. 预警条件 —— 三级配置（默认/全局/个股）
+ *   5. 检测到的事件 —— 行情类 + 公告类
+ *   6. 分析任务 —— 保存「标的 + 区间 + 对比组」，一键重跑
+ *   7. 行业监控 —— 申万一级行业指数 + 行业事件
+ *   8. 跨资产对比 —— 相对表现 / 相关性 / 相对基准
+ *   9. 追问 —— 自然语言提问与条件修改
+ *  10. 调查报告 —— 事实/推测分栏 + 证据编号
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { StockSearch } from "./components/StockSearch";
@@ -20,9 +24,12 @@ import { RefreshBar } from "./components/RefreshBar";
 import { WatchlistEvents } from "./components/WatchlistEvents";
 import { CrossPanel } from "./components/CrossPanel";
 import { ChatPanel } from "./components/ChatPanel";
+import { IndustryPanel } from "./components/IndustryPanel";
+import { TaskPanel } from "./components/TaskPanel";
 import { services } from "./services";
 import type { WatchItem } from "./services/MaintenanceService";
 import { Indicator, InvestigationReport, MarketEvent, Series } from "./models";
+
 
 const RANGES: [string, number][] = [
   ["1个月", 30], ["3个月", 90], ["6个月", 180], ["1年", 365], ["2年", 730],
@@ -45,6 +52,7 @@ export default function App() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [refreshingFinancials, setRefreshingFinancials] = useState(false);
 
   const range = useMemo(() => ({
     start: iso(new Date(Date.now() - days * 86400000)),
@@ -113,6 +121,21 @@ export default function App() {
       setEvents(evs);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [code, range]);
+
+  // 单独刷新某只票的财务快照（A1），成功后重算指标
+  const refreshFinancials = useCallback(async () => {
+    setRefreshingFinancials(true);
+    setError("");
+    try {
+      await services.stocks.refreshFinancials(code);
+      const ind = await services.stocks.getIndicator(code, range.start, range.end);
+      setIndicator(ind);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRefreshingFinancials(false);
     }
   }, [code, range]);
 
@@ -213,7 +236,11 @@ export default function App() {
         </div>
         {error && <p className="error">{error}</p>}
         {loading && <p className="loading">加载中…（首次拉行情可能较慢）</p>}
-        {indicator && <IndicatorPanel indicator={indicator} />}
+        {indicator && (
+          <IndicatorPanel indicator={indicator}
+                          onRefreshFinancials={() => void refreshFinancials()}
+                          refreshingFinancials={refreshingFinancials} />
+        )}
         {series && <PriceChart series={series} events={events} />}
       </section>
 
@@ -233,6 +260,14 @@ export default function App() {
           <EventList events={events} onInvestigate={investigate} busy={loading} />
         </section>
       )}
+
+      <TaskPanel code={code} days={days}
+                 onLoad={(c, d) => {
+                   setDays(d);
+                   void analyze(c, d);
+                 }} />
+
+      <IndustryPanel onError={setError} />
 
       <CrossPanel codes={crossCodes} start={range.start} end={range.end} />
 

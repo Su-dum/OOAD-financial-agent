@@ -6,6 +6,7 @@ import { HttpClient } from "./HttpClient";
 import {
   CrossAsset,
   CrossDTO,
+  FinancialDTO,
   Indicator,
   IndicatorDTO,
   PeriodRowDTO,
@@ -71,5 +72,20 @@ export class StockService {
       `/stocks/${encodeURIComponent(code)}/periods?${qs.toString()}`,
     );
     return body.items;
+  }
+
+  /** A1：财务快照（读本地，不联网） */
+  async financials(code: string): Promise<FinancialDTO> {
+    return this.http.get<FinancialDTO>(
+      `/stocks/${encodeURIComponent(code)}/financials`,
+    );
+  }
+
+  /** A1：刷新财务快照（打外部接口，用户显式点击才调） */
+  async refreshFinancials(code: string, years = 3): Promise<FinancialDTO> {
+    return this.http.post<FinancialDTO>(
+      `/stocks/${encodeURIComponent(code)}/financials/refresh?years=${years}`,
+      {},
+    );
   }
 }

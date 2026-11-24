@@ -14,6 +14,7 @@
 
 任一条链失败都不影响另一条（行情源挂了，公告事件照样能出）。
 """
+from dataclasses import replace
 from typing import Optional, Sequence
 
 from ..domain.events import (AlertRule, MarketEvent, NoticeEventRule, NoticeRule,
@@ -96,6 +97,29 @@ class EventMonitor:
         return out
 
     # ---------------- 内部：两条链 ----------------
+    def evaluate_series(self, series, name: str = "", rules=None,
+                        scope: str = "stock") -> list[MarketEvent]:
+        """对**任意**价格序列跑行情规则。
+
+        公共入口：行业指数（`industry_sw`）与个股都走这里，
+        区别只在 `scope` 标记——行业不需要第二套检测逻辑。
+        """
+        rules = self.rules if rules is None else rules
+        if not rules:
+            return []
+        events: list[MarketEvent] = []
+        for rule in rules:
+            try:
+                got = rule.evaluate(series, name=name)
+            except Exception as e:                     # 单条规则出错不影响其它规则
+                if self.log:
+                    self.log(f"  [monitor] 规则 {rule.name} 失败: {type(e).__name__}")
+                continue
+            if scope != "stock":
+                got = [replace(ev, scope=scope) for ev in got]
+            events.extend(got)
+        return events
+
     def _scan_price(self, code, start, end, source, name,
                     rules=None) -> list[MarketEvent]:
         rules = self.rules if rules is None else rules
@@ -107,14 +131,7 @@ class EventMonitor:
             if self.log:
                 self.log(f"  [monitor] {code} 无可用行情序列，跳过价格规则")
             return []
-        events: list[MarketEvent] = []
-        for rule in rules:
-            try:
-                events.extend(rule.evaluate(series, name=name))
-            except Exception as e:                     # 单条规则出错不影响其它规则
-                if self.log:
-                    self.log(f"  [monitor] 规则 {rule.name} 失败: {type(e).__name__}")
-        return events
+        return self.evaluate_series(series, name=name, rules=rules)
 
     def _scan_notices(self, code, start, end, name,
                       notice_rules=None) -> list[MarketEvent]:

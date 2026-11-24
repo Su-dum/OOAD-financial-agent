@@ -13,13 +13,18 @@ router = APIRouter(prefix="/api", tags=["maintenance"])
 # ============================================================
 # 一键更新
 # ============================================================
-@router.post("/refresh", summary="一键更新：新闻增量 + 公告增量 + 快照 + 自选股事件 + 清理")
+@router.post("/refresh", summary="一键更新：新闻 + 公告 + 财务 + 事件 + 自动调查 + 清理")
 def refresh(news_days: float = Query(2, ge=0.5, le=30),
             max_pages: int = Query(12, ge=1, le=60),
             detect_days: int = Query(90, ge=5, le=400),
             include_notices: bool = Query(True, description="是否采集公告"),
             notice_days: int = Query(400, ge=30, le=2000),
             max_notice_stocks: int = Query(12, ge=0, le=50),
+            include_financials: bool = Query(True, description="是否刷新财务快照"),
+            max_financial_codes: int = Query(8, ge=0, le=50),
+            include_industries: bool = Query(True, description="是否检测行业指数"),
+            auto_investigate: Optional[bool] = Query(
+                None, description="是否对高等级事件自动调查（默认按配置开启）"),
             prune: bool = Query(True),
             dry_run_prune: bool = Query(False)):
     svc = get_services()
@@ -28,6 +33,10 @@ def refresh(news_days: float = Query(2, ge=0.5, le=30),
                           include_notices=include_notices,
                           notice_days=notice_days,
                           max_notice_stocks=max_notice_stocks,
+                          include_financials=include_financials,
+                          max_financial_codes=max_financial_codes,
+                          include_industries=include_industries,
+                          auto_investigate=auto_investigate,
                           prune=prune, dry_run_prune=dry_run_prune)
     return res.to_dict()
 

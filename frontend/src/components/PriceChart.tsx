@@ -42,6 +42,13 @@ function niceTicks(min: number, max: number, count: number): number[] {
   return Array.from({ length: count }, (_, i) => min + step * i);
 }
 
+/** 成交量单位自适应：指数是「万股/亿股」量级，个股是「万手」量级。 */
+function fmtVolume(v: number): string {
+  if (v >= 1e8) return `${(v / 1e8).toFixed(1)} 亿`;
+  if (v >= 1e4) return `${(v / 1e4).toFixed(0)} 万`;
+  return v.toFixed(0);
+}
+
 export function PriceChart({
   series,
   events,
@@ -166,7 +173,7 @@ export function PriceChart({
         {volTicks.map((v) => (
           <text key={`vt-${v}`} x={W - PAD.r} y={volTop + 10} textAnchor="end"
                 fill={COLORS.axis} fontSize="10">
-            成交量上限 {(v / 10000).toFixed(0)}万
+            成交量上限 {fmtVolume(v)}
           </text>
         ))}
 

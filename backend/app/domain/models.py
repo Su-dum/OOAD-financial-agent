@@ -127,11 +127,19 @@ class IndicatorSet:
     pe_ttm_percentile: Optional[float] = None   # 区间内历史分位
     pb_percentile: Optional[float] = None
 
-    # ---- 盈利与成长（来自申万映射表快照）----
+    # ---- 盈利与成长（优先财务快照，缺失时回退申万映射表）----
     roe: Optional[float] = None
     profit_growth: Optional[float] = None
     revenue_growth: Optional[float] = None
     market_cap: Optional[float] = None
+
+    # ---- 财务质量（A1：来自定期报告快照，单位见 domain/financials.py）----
+    net_margin: Optional[float] = None          # 销售净利率(%)
+    gross_margin: Optional[float] = None        # 销售毛利率(%)
+    debt_ratio: Optional[float] = None          # 资产负债率(%)
+    eps: Optional[float] = None                 # 摊薄每股收益(元)
+    financial_report_date: Optional[str] = None  # 快照对应的报告期
+    financial_source: Optional[str] = None       # 财务数据来源
 
     def to_dict(self) -> dict:
         return asdict(self)

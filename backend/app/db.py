@@ -53,6 +53,9 @@ def _table_columns(con, table: str) -> list:
 # 「后加的列」清单：CREATE TABLE IF NOT EXISTS 不会改已有表，老库必须显式补列
 _ADDED_COLUMNS = (
     ("event", "source_url", "TEXT"),
+    ("event", "scope", "TEXT DEFAULT 'stock'"),
+    ("report", "event_date", "TEXT"),
+    ("report", "event_type", "TEXT"),
 )
 
 
@@ -172,12 +175,49 @@ def init_schema(con):
         PRIMARY KEY (code, rule_type)
     );
 
+    -- 分析任务（C1）：把「标的 + 区间 + 对比组」存成可复用的任务
+    CREATE TABLE IF NOT EXISTS analysis_task (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        name           TEXT NOT NULL,
+        code           TEXT NOT NULL,
+        days           INTEGER NOT NULL DEFAULT 365,
+        compare_codes  TEXT,
+        benchmark      TEXT,
+        created_at     TEXT NOT NULL,
+        last_run_at    TEXT
+    );
+
+    -- 行业监控（B1）：只存被用户加入监控的申万一级行业
+    CREATE TABLE IF NOT EXISTS industry_watch (
+        code     TEXT PRIMARY KEY,
+        name     TEXT,
+        added_at TEXT NOT NULL
+    );
+
+    -- 财务快照（A1）：一只票一行，只存最近一期定期报告
+    CREATE TABLE IF NOT EXISTS financial (
+        code               TEXT PRIMARY KEY,
+        report_date        TEXT NOT NULL,
+        roe                REAL,
+        net_profit_growth  REAL,
+        revenue_growth     REAL,
+        net_margin         REAL,
+        gross_margin       REAL,
+        debt_ratio         REAL,
+        eps                REAL,
+        bps                REAL,
+        source             TEXT,
+        fetched_at         TEXT NOT NULL
+    );
+
     -- 调查报告（B3）：JSON 原文 + 冗余 markdown
     CREATE TABLE IF NOT EXISTS report (
         id         INTEGER PRIMARY KEY AUTOINCREMENT,
         code       TEXT NOT NULL,
         name       TEXT,
         question   TEXT,
+        event_date TEXT,
+        event_type TEXT,
         created_at TEXT NOT NULL,
         payload    TEXT NOT NULL,
         markdown   TEXT

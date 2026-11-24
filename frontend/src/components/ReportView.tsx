@@ -1,12 +1,15 @@
-﻿/** 调查报告：事实与推测**分栏展示**，证据可追溯。 */
+/** 调查报告：事实与推测**分栏展示**，证据可追溯。 */
 import { InvestigationReport } from "../models";
 
 export function ReportView({ report }: { report: InvestigationReport }) {
   const r = report;
+  const meta = r.dto.llm_meta ?? {};
+  const auto = meta.auto === true;
   return (
     <section className="panel report">
       <header>
         <h2>{r.dto.name || r.dto.code} 事件调查报告</h2>
+        {auto && <span className="badge warn">自动调查</span>}
         <span className="badge">置信度 {r.confidenceText}</span>
       </header>
 

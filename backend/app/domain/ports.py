@@ -14,6 +14,7 @@ application 与 domain 一行都不用改。
 """
 from typing import Protocol, Sequence, Optional, Any, runtime_checkable
 
+from .financials import FinancialSnapshot
 from .models import PriceSeries
 
 
@@ -57,6 +58,31 @@ class NewsProvider(Protocol):
 
     def fetch_history(self, before: Optional[str] = None, limit: int = 20) -> list[dict]:
         """向前翻页取历史。返回空列表表示到头了。"""
+        ...
+
+
+@runtime_checkable
+class FinancialProvider(Protocol):
+    """财务数据源（季频）。
+
+    与 `PriceProvider` 分开声明：财务没有「序列」概念，
+    一次只返回最近一期定期报告的快照。
+    """
+
+    name: str
+
+    def fetch(self, code: str, years: int = 3) -> Optional[FinancialSnapshot]:
+        ...
+
+
+@runtime_checkable
+class FinancialRepository(Protocol):
+    """财务快照持久化。"""
+
+    def get(self, code: str) -> Optional[dict]:
+        ...
+
+    def upsert(self, snapshot: FinancialSnapshot) -> None:
         ...
 
 

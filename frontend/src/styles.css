@@ -270,3 +270,51 @@ h3 { font-size: 14px; color: var(--muted); margin: 18px 0 8px; }
   .bubble { max-width: 100%; }
   .alert-grid { grid-template-columns: 1fr; }
 }
+
+/* ---------- 通用小按钮（更新财务 / 刷新行业） ---------- */
+button.ghost {
+  background: transparent; color: var(--text); border: 1px solid var(--line);
+  border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 13px;
+}
+button.ghost:hover { border-color: var(--accent); color: var(--accent); }
+button.ghost.small { padding: 3px 10px; font-size: 12px; }
+button.ghost.danger:hover { border-color: var(--high); color: var(--high); }
+button.ghost:disabled { opacity: .5; cursor: default; }
+
+/* ---------- 分析任务 ---------- */
+.task-create { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.task-create input {
+  flex: 1 1 200px; padding: 8px 10px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--text);
+}
+.task-create button {
+  padding: 8px 14px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--accent); background: var(--accent); color: #fff;
+  font-size: 13px;
+}
+.task-create button:disabled { opacity: .5; cursor: default; }
+.task-list { list-style: none; margin: 0 0 12px; padding: 0; }
+.task-list li {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 12px; margin-bottom: 8px;
+}
+.task-actions { display: flex; gap: 6px; }
+.task-actions button {
+  padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 12px;
+  border: 1px solid var(--accent); background: var(--accent); color: #fff;
+}
+.task-result { border-top: 1px dashed var(--line); padding-top: 12px; margin-top: 12px; }
+
+/* ---------- 行业监控 ---------- */
+.industry-add { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 14px; }
+.industry-add select {
+  flex: 1 1 240px; padding: 8px 10px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--text);
+}
+.industry-add button {
+  padding: 8px 14px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--accent); background: var(--accent); color: #fff;
+  font-size: 13px;
+}
+.industry-add button:disabled { opacity: .5; cursor: default; }

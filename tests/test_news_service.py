@@ -8,6 +8,7 @@
   - 数据源报错要停且不抛异常（stopped_by=error）
 """
 import sys
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -27,9 +28,18 @@ class FakeRepo:
         return (len(rows), 0) if self.insert else (0, len(rows))
 
 
-def row(i, published_at="2026-11-16 10:00:00"):
+def ts(hours_ago: float = 1) -> str:
+    """「一小时前」的时间戳。
+
+    不要写死日期：这些用例断言的是「没有越过 days 边界」，
+    一旦写死某个日期，过几天（或环境时钟推进）就会变成 boundary 而不是 max_pages。
+    """
+    return (datetime.now() - timedelta(hours=hours_ago)).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def row(i, published_at=None):
     return dict(source="em", channel="快讯", title=f"新闻 {i}", content="内容",
-                published_at=published_at, url=None)
+                published_at=published_at or ts(), url=None)
 
 
 @pytest.fixture()

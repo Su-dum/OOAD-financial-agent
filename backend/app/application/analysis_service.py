@@ -24,11 +24,25 @@ def _round(x):
     return x
 
 
+def _set_float(obj, field: str, value) -> None:
+    """把可能为字符串/NaN 的外部值写进 dataclass 字段；非法值保持 None。"""
+    if value in (None, "", "nan", "None"):
+        setattr(obj, field, None)
+        return
+    try:
+        setattr(obj, field, float(value))
+    except (TypeError, ValueError):
+        setattr(obj, field, None)
+
+
 class FinancialAnalyzer:
-    def __init__(self, market: MarketDataService, rf: float = 0.0, log=print):
+    def __init__(self, market: MarketDataService, rf: float = 0.0, log=print,
+                 financial=None):
         self.market = market
         self.rf = rf          # 年化无风险利率
         self.log = log
+        # 财务快照来源（A1）。None 时退回申万映射表里的静态快照
+        self.financial = financial
 
     # ---------------- 单标的 ----------------
     def analyze(self, code: str, start: str, end: str, adjust: str = "qfq",
@@ -59,14 +73,40 @@ class FinancialAnalyzer:
         computed = {k: _round(v) for k, v in calc.items()
                     if k in IndicatorSet.__dataclass_fields__ and k not in base}
         result = IndicatorSet(**base, **computed)
-
-        for f in ("roe", "profit_growth", "revenue_growth", "market_cap"):
-            v = meta.get(f)
-            try:
-                setattr(result, f, None if v in (None, "", "nan") else float(v))
-            except (TypeError, ValueError):
-                pass
+        self._apply_financials(result, series.code, meta)
         return result
+
+    def _apply_financials(self, result: IndicatorSet, code: str, meta: dict) -> None:
+        """填盈利/成长字段。
+
+        优先级：**财务快照（实时抓取，A1）> 申万映射表静态快照**。
+        后者是构建行业映射时的副产物，只在财务服务没取到数据时兜底，
+        这样「A1 已接外部财务接口」这件事在结果里体现为 `financial_source`。
+        """
+        snap = None
+        if self.financial is not None:
+            try:
+                snap = self.financial.get(code)
+            except Exception:                           # noqa: BLE001
+                snap = None
+
+        # 三个历史字段的名字与新快照不同，做一次映射
+        legacy = {"roe": "roe", "profit_growth": "net_profit_growth",
+                  "revenue_growth": "revenue_growth"}
+        for target, source in legacy.items():
+            v = (snap or {}).get(source)
+            if v in (None, "", "nan"):
+                v = meta.get(target)
+            _set_float(result, target, v)
+
+        # 新增字段只来自财务快照
+        for f in ("net_margin", "gross_margin", "debt_ratio", "eps"):
+            _set_float(result, f, (snap or {}).get(f))
+
+        _set_float(result, "market_cap", meta.get("market_cap"))
+        if snap:
+            result.financial_report_date = snap.get("report_date")
+            result.financial_source = snap.get("source")
 
     # ---------------- 横向比较（A3）----------------
     def compare(self, codes: Sequence[str], start: str, end: str,

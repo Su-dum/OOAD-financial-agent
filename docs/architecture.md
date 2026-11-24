@@ -8,13 +8,14 @@
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │  接口层  api/                                                 │
-│    app.py  deps.py  routes/{stocks,events,notices,alerts,     │
-│                             chat,maintenance}.py              │
+│    app.py  deps.py  routes/{stocks,financials,events,notices, │
+│                     industries,alerts,chat,tasks,maintenance} │
 └───────────────────────┬──────────────────────────────────────┘
                         │ 只依赖应用服务
 ┌───────────────────────▼──────────────────────────────────────┐
 │  应用层  application/                                         │
 │    MarketDataService   FinancialAnalyzer   CrossAssetAnalyzer │
+│    FinancialService    IndustryService     AnalysisTaskService│
 │    EventMonitor        InvestigationAgent  ConversationAgent  │
 │    AlertConfigService  NoticeIngestService NewsIngestService  │
 │    MaintenanceService  RefreshService                         │
@@ -22,17 +23,20 @@
                         │ 只依赖抽象（ports）
 ┌───────────────────────▼──────────────────────────────────────┐
 │  领域层  domain/            core/                            │
-│    models / ports / events / notices / investigation /        │
-│    watchlist / entity_linking                                │
+│    models / ports / events / notices / financials / industry /│
+│    analysis_task / investigation / watchlist / entity_linking │
 │    core/indicators（纯函数计算，含跨资产统计量）              │
 └───────────────────────▲──────────────────────────────────────┘
                         │ 实现 ports
 ┌───────────────────────┴──────────────────────────────────────┐
 │  基础设施层  infrastructure/                                  │
 │    providers/{baostock,sina,eastmoney,cninfo,sina_index,      │
+│               sina_financial,sw_industry_index,               │
 │               eastmoney_notice,news_sources,akshare_compat,   │
 │               pdf_utils,cache}                                │
-│    repositories/{news,event,report,watchlist,notice,alert_rule}│
+│    repositories/{news,event,report,watchlist,notice,          │
+│                  alert_rule,financial,industry_watch,         │
+│                  analysis_task}                               │
 │    catalog   llm/{client}                                     │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -45,10 +49,10 @@ Composition Root 在启动时装配。所以换数据源只改 `infrastructure/`
 
 | 目录 | 层 | 内容 |
 |---|---|---|
-| `domain/` | 领域 | `models.py` 值对象与实体；`ports.py` 抽象契约；`events.py` 事件与两类规则；`notices.py` 公告→事件分类；`investigation.py` 证据与报告；`entity_linking.py` 实体链接；`watchlist.py` 监控列表 |
+| `domain/` | 领域 | `models.py` 值对象与实体；`ports.py` 抽象契约；`events.py` 事件与两类规则；`notices.py` 公告→事件分类；`financials.py` 财务快照；`industry.py` 行业标识；`analysis_task.py` 分析任务；`investigation.py` 证据与报告；`entity_linking.py` 实体链接；`watchlist.py` 监控列表 |
 | `core/` | 领域（计算） | `indicators.py` 纯函数：收益/风险/估值 + 相关系数/beta/跟踪误差 |
-| `application/` | 应用 | `market_service` `analysis_service` `cross_asset_service` `monitoring_service` `investigation_service` `conversation_service` `alert_config_service` `notice_service` `news_service` `maintenance_service` `refresh_service` |
-| `infrastructure/` | 基础设施 | `providers/` 数据源适配器；`repositories/` 持久化；`catalog.py` 静态参考数据；`llm/client.py` 大模型客户端 |
+| `application/` | 应用 | `market_service` `analysis_service` `cross_asset_service` `monitoring_service` `investigation_service` `conversation_service` `alert_config_service` `financial_service` `industry_service` `task_service` `notice_service` `news_service` `maintenance_service` `refresh_service` |
+| `infrastructure/` | 基础设施 | `providers/` 数据源适配器（行情/指数/公告/财务/行业指数）；`repositories/` 持久化；`catalog.py` 静态参考数据；`llm/client.py` 大模型客户端 |
 | `api/` | 接口 | FastAPI 路由与依赖装配 |
 | `frontend/` | 表现层 | React + TS：`models/`（DTO 与视图对象）`services/`（API 客户端）`components/`（展示与图表） |
 
@@ -64,7 +68,11 @@ Composition Root 在启动时装配。所以换数据源只改 `infrastructure/`
 | `IndicatorSet` | 值对象 | 一次分析的全部指标结果 |
 | `PriceProvider` | **协议** | 行情源契约（`name` / `priority` / `returns_trustworthy` / `fetch`） |
 | `PriceCache` / `NewsRepository` / `EventRepository` / `ReportRepository` / `NoticeRepository` | 协议 | 缓存与持久化契约 |
-| `MarketEvent` | 值对象（frozen） | 一个被检测到的事件，带 `label` 与 `source_url` |
+| `FinancialProvider` / `FinancialRepository` | **协议** | 财务快照的取数与持久化契约（季频，无序列概念） |
+| `FinancialSnapshot` | 值对象（frozen） | 最近一期定期报告的 8 个关键指标 + 报告期 + 来源 |
+| `IndustryRef` | 值对象（frozen） | 申万一级行业标识（代码/名称/成分股数/估值） |
+| `AnalysisTask` | 值对象（frozen） | 分析任务参数：标的 + 区间 + 对比组 + 基准（C1） |
+| `MarketEvent` | 值对象（frozen） | 一个被检测到的事件，带 `label`、`source_url` 与 `scope`（stock/industry） |
 | `AlertRule` | **抽象基类** | 行情类预警规则策略父类 |
 | `ThresholdRule` / `VolumeSpikeRule` / `ZScoreRule` | 策略 | 三种行情检测算法 |
 | `NoticeRule` | **抽象基类** | 公告类预警规则策略父类（输入是公告流，不是价格序列） |
@@ -83,8 +91,11 @@ Composition Root 在启动时装配。所以换数据源只改 `infrastructure/`
 | `MarketDataService` | 对外的唯一取数入口；`default()` 工厂负责装配默认链 |
 | `FinancialAnalyzer` | 取数 → 调纯函数 → 组装 `IndicatorSet`；`compare` / `compare_periods` 支持 A3 |
 | `CrossAssetAnalyzer` | 多标对齐、净值、相关性矩阵、基准 beta（D3） |
-| `EventMonitor` | 把价格序列喂给 `AlertRule`、把公告流喂给 `NoticeRule`，汇总事件（B2 / D1） |
+| `EventMonitor` | 把价格序列喂给 `AlertRule`、把公告流喂给 `NoticeRule`，汇总事件（B2 / D1）；`evaluate_series()` 让行业指数复用同一套规则 |
 | `AlertConfigService` | 三级合并「默认 → 全局 → 个股」预警配置，构造规则对象（C1） |
+| `FinancialService` | 财务快照读取/刷新/TTL，写路径只在刷新时打外部接口（A1） |
+| `IndustryService` | 行业清单、监控列表、行业指数序列与事件（B1） |
+| `AnalysisTaskService` | 分析任务的校验/持久化/一键重跑（C1） |
 | `InvestigationTool` | 调查工具协议 |
 | `NewsSearchTool` / `NoticeSearchTool` / `IndicatorTool` | 三个具体工具，各自产出 `Evidence` |
 | `InvestigationAgent` | 拆任务 → 调工具 → 组装报告（B3 / D2） |
@@ -93,7 +104,7 @@ Composition Root 在启动时装配。所以换数据源只改 `infrastructure/`
 | `TemplateConclusionWriter` | 模板拼接（永远可用的兜底） |
 | `LLMConclusionWriter` | 大模型归纳 + **引用校验** + 失败自动降级 |
 | `NoticeIngestService` | 东财 → 巨潮 降级的公告采集与落库 |
-| `NewsIngestService` / `MaintenanceService` / `RefreshService` | 新闻采集、保留策略、一键刷新编排 |
+| `NewsIngestService` / `MaintenanceService` / `RefreshService` | 新闻采集、保留策略、一键刷新编排（含**高等级事件自动调查**，B3） |
 
 ### 基础设施层
 
@@ -104,12 +115,14 @@ Composition Root 在启动时装配。所以换数据源只改 `infrastructure/`
 | `SinaProvider` | 口径正确（偏差 6.95e-06），无 PE/PB |
 | `EastmoneyProvider` | 字段最全，但 `returns_trustworthy = False` |
 | `SinaIndexProvider` | 指数行情（D3 基准），代码带交易所前缀 |
+| `SwIndustryIndexProvider` | 申万一级行业指数（B1），复用 `BasePriceProvider` 模板方法 |
+| `SinaFinancialProvider` | 新浪财务指标（A1），86 列 → 8 个字段的快照 |
 | `EastmoneyNoticeProvider` | 公告列表 + **公告类型**（B2 分类依据） |
 | `CninfoNoticeProvider` | 巨潮公告列表 + PDF 正文抽取（B3 证据） |
 | `akshare_compat` | akshare 改名兼容层（旧名 → 新名解析） |
 | `pdf_utils` | 详情链接 → PDF 直链 → 抽正文（两个公告 Provider 共用） |
 | `CsvPriceCache` | `PriceCache` 实现，CSV 落盘 + TTL |
-| `SqliteNewsRepository` / `SqliteEventRepository` / `SqliteReportRepository` / `SqliteWatchlistRepository` / `SqliteNoticeRepository` / `SqliteAlertRuleRepository` | 仓储实现 |
+| `Sqlite*Repository` | 新闻 / 事件 / 报告 / 自选股 / 公告 / 预警配置 / 财务 / 行业监控 / 分析任务 九类仓储 |
 | `CsvStockCatalog` | 申万行业映射（5229 只） |
 | `OpenAIChatClient` / `LLMConfig` | OpenAI 兼容客户端与配置装配 |
 
@@ -129,6 +142,8 @@ Composition Root 在启动时装配。所以换数据源只改 `infrastructure/`
 | **值对象** | `PriceRecord` / `MarketEvent` / `Evidence` / `NoticeCategory`（frozen） | 不可变，避免共享状态被意外修改 |
 | **防腐层** | `akshare_compat` | 第三方库改名/换签名不外溢到业务代码 |
 | **校验即守卫** | `llm_conclusion` / `conversation_service` | 引用编号必须存在，编造即整段作废 |
+| **限流式自动化** | `RefreshService._auto_investigate` | 检测后自动调查，但限制严重度/条数/按事件去重，避免刷新失控 |
+| **作用域标记** | `MarketEvent.scope` | 行业事件与个股事件共用一张表与一套规则，用 scope 区分 |
 
 ## 五、五个刻意的设计取舍
 
@@ -171,7 +186,7 @@ Composition Root 在启动时装配。所以换数据源只改 `infrastructure/`
 
 ```
 $ pytest tests -q
-180 passed in 0.83s
+231 passed in 2.2s
 ```
 
 | 文件 | 用例 | 覆盖 |
@@ -181,12 +196,16 @@ $ pytest tests -q
 | `test_llm.py` | 14 | 假 LLM：幻觉拦截、置信度封顶、降级 |
 | `test_maintenance.py` | 13 | 保留策略、自选股、刷新编排 |
 | `test_threading.py` | 4 | SQLite 跨线程 |
-| `test_notices.py` | 39 | 公告分类、硬噪音、聚合、落库、迁移、标题清洗 |
+| `test_notices.py` | 40 | 公告分类、硬噪音、聚合、落库、迁移、标题清洗 |
 | `test_alerts.py` | 21 | 三级配置合并、参数校验、配置真的改变检测行为 |
 | `test_chat.py` | 23 | 意图路由、动作解析、证据编号、引用校验 |
 | `test_cross_asset.py` | 17 | pearson/beta、交集对齐、矩阵性质、基准 |
 | `test_compat.py` | 5 | akshare 新旧名解析 |
 | `test_news_service.py` | 6 | 采集边界：页数上限 / 已知 / 时间边界 / 源报错 |
+| `test_financials.py` | 14 | 财务列名映射、快照仓储、TTL、与指标优先级（A1） |
+| `test_industries.py` | 13 | 行业清单、监控列表、行业指数事件与 scope（B1） |
+| `test_tasks.py` | 16 | 分析任务校验、持久化、一键重跑（C1） |
+| `test_auto_investigate.py` | 8 | 自动调查的严重度门槛/条数上限/去重/失败隔离（B3） |
 
 架构测试覆盖：
 
@@ -201,6 +220,9 @@ $ pytest tests -q
 | Agent 在工具抛异常时仍出报告 | 容错边界清晰 |
 | 事实 / 推测分离 | 领域约束可断言 |
 | 配置改阈值后事件数量变化 | 配置真的驱动行为（不是存了不用） |
+| 财务快照优先于静态映射表 | A1 的数据来源优先级可断言 |
+| 行业指数事件带 `scope=industry` | 行业与个股事件不会串台 |
+| 自动调查只挑 high 且按事件去重 | 「自动化」不会退化成「每次全查」 |
 
 **能做到「不联网跑通全链路」，就是解耦成功的证据**——如果代码里到处是
 `if src == "baostock"` 或 `if notice_type == "年度报告"`，这些替身根本插不进去。
@@ -213,6 +235,9 @@ $ pytest tests -q
 | 新增一种行情异常检测算法 | 写一个 `AlertRule` 子类 + 在 `AlertConfigService` 注册 | `EventMonitor`、报告流程 |
 | 新增一种公告事件类别 | 在 `domain/notices.py` 加一个 `NoticeCategory`（关键词表） | 规则、监控器、接口、前端 |
 | 新增一个可配预警参数 | `DEFAULT_RULES` + `BOUNDS` + 规则构造 | 数据库、接口、前端表单（自动出现） |
+| 新增一个财务字段 | `domain/financials.py` 的 FIELDS + 列名映射 | Provider / 仓储 / 接口（列自动透传） |
+| 新增一个行业指数源 | 写一个 `BasePriceProvider` 子类 | 行业服务、规则、接口、前端 |
+| 新增一种分析任务结果块 | `AnalysisTaskService.run()` 里追加一段 | 任务表结构、前端列表 |
 | 换数据库 | 换 `repositories/` 的实现 | 领域层、应用层 |
 | 接入另一家大模型 | 写一个满足 `LLMClient` 协议的类，注入 Agent | 报告结构、证据收集、追问 |
 | 换前端框架 | 重写 `frontend/` | 后端全部 |
@@ -221,13 +246,13 @@ $ pytest tests -q
 
 | 评分项 | 架构落点 |
 |---|---|
-| A1 获取行情与财务 | `MarketDataService` + `providers/*` + `CsvStockCatalog` |
+| A1 获取行情与财务 | `MarketDataService`（行情）+ `FinancialService` / `SinaFinancialProvider`（财务）+ `CsvStockCatalog` |
 | A2 计算金融指标 | `core/indicators` + `FinancialAnalyzer` |
 | A3 历史与横向/跨期比较 | `FinancialAnalyzer.compare` / `compare_periods` |
-| B1 监控自选/公司 | `Watchlist` 聚合根 + `RefreshService` + 前端自选面板 |
+| B1 监控自选/公司/行业 | `Watchlist` + `IndustryService`（行业指数）+ `RefreshService` + 前端两个面板 |
 | B2 事件检测（行情 + 公告） | `AlertRule` 族 + `NoticeRule` 族 + `EventMonitor` |
-| B3 事件后调查 | `InvestigationAgent` + 三个 Tool + `InvestigationReport` |
-| C1 可配置监控与预警 | `AlertConfigService` + `alert_rule` 表 + 前端表单 |
+| B3 事件后调查（含自动） | `InvestigationAgent` + 三个 Tool + `RefreshService` 自动调查 |
+| C1 可配置监控/任务/预警 | `AlertConfigService` + `AnalysisTaskService` + 两张配置表 + 前端表单 |
 | C2 自然语言追问 | `ConversationAgent` + `/api/chat` + 前端对话面板 |
 | C3 表格/图表/结构化解释 | 前端 `PriceChart` / `NetValueChart` / `CorrelationMatrix` + 表格 |
 | C4 证据可追溯 | `Evidence`（来源/时间/链接/片段）+ 报告与追问的引用编号 |

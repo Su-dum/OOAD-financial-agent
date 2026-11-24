@@ -35,6 +35,13 @@ export interface IndicatorDTO {
   profit_growth: number | null;
   revenue_growth: number | null;
   market_cap: number | null;
+  // 财务快照（A1）：单位是百分数本身（23.77 = 23.77%）
+  net_margin: number | null;
+  gross_margin: number | null;
+  debt_ratio: number | null;
+  eps: number | null;
+  financial_report_date: string | null;
+  financial_source: string | null;
 }
 
 /** 指标是一组只读事实的视图对象。 */
@@ -126,7 +133,8 @@ export interface EvidenceDTO {
   confidence: number;
 }
 
-export interface TaskDTO {
+/** 调查报告里的子任务（多步骤调查单元） */
+export interface InvestigationTaskDTO {
   question: string;
   tool: string;
   status: string;
@@ -139,13 +147,15 @@ export interface ReportDTO {
   name: string;
   event: EventDTO | null;
   question: string;
-  tasks: TaskDTO[];
+  tasks: InvestigationTaskDTO[];
   evidences: EvidenceDTO[];
   facts: string[];
   hypotheses: string[];
   conclusion: string;
   confidence: number;
   created_at: string;
+  /** 结论元信息：degraded / auto / model / cited_evidence_ids ... */
+  llm_meta?: Record<string, unknown>;
 }
 
 export class InvestigationReport {
@@ -373,4 +383,74 @@ export interface PeriodRowDTO {
   max_drawdown: number | null;
   sharpe: number | null;
   n_days: number;
+}
+
+// ============================================================
+// 财务快照（A1）
+// ============================================================
+export interface FinancialFieldDTO {
+  field: string;
+  label: string;
+  description: string;
+}
+
+export interface FinancialDTO {
+  code: string;
+  name: string;
+  industry_l1: string;
+  snapshot: Record<string, number | string | null> | null;
+  fields: FinancialFieldDTO[];
+  stale: boolean;
+  ttl_days: number;
+  fetched_at: string | null;
+}
+
+// ============================================================
+// 行业监控（B1）
+// ============================================================
+export interface IndustryDTO {
+  code: string;
+  name: string;
+  level: string;
+  stock_count: number | null;
+  pe_static: number | null;
+  pe_ttm: number | null;
+  pb: number | null;
+  dividend_yield: number | null;
+  watched: boolean;
+  added_at?: string | null;
+  event_count?: number;
+  latest_event?: EventDTO | null;
+}
+
+// ============================================================
+// 分析任务（C1）
+// ============================================================
+export interface TaskDTO {
+  id: number;
+  name: string;
+  code: string;
+  days: number;
+  compare_codes: string[];
+  benchmark: string | null;
+  created_at: string;
+  last_run_at: string;
+}
+
+export interface TaskRunDTO {
+  task: TaskDTO;
+  start: string;
+  end: string;
+  generated_at: string;
+  indicator: IndicatorDTO | null;
+  events: EventDTO[];
+  event_count: number;
+  periods: PeriodRowDTO[];
+  cross: {
+    n_days: number;
+    assets: CrossAssetDTO[];
+    correlation: CorrelationDTO;
+    benchmark: BenchmarkDTO | null;
+    note?: string;
+  } | null;
 }
