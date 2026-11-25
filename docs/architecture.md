@@ -9,14 +9,15 @@
 ┌──────────────────────────────────────────────────────────────┐
 │  接口层  api/                                                 │
 │    app.py  deps.py  routes/{stocks,financials,events,notices, │
-│                     industries,alerts,chat,tasks,maintenance} │
+│                industries,alerts,chat,tasks,scenario,         │
+│                maintenance}                                   │
 └───────────────────────┬──────────────────────────────────────┘
                         │ 只依赖应用服务
 ┌───────────────────────▼──────────────────────────────────────┐
 │  应用层  application/                                         │
 │    MarketDataService   FinancialAnalyzer   CrossAssetAnalyzer │
 │    FinancialService    IndustryService     AnalysisTaskService│
-│    EventMonitor        InvestigationAgent  ConversationAgent  │
+│    ScenarioService     EventMonitor        InvestigationAgent  │
 │    AlertConfigService  NoticeIngestService NewsIngestService  │
 │    MaintenanceService  RefreshService                         │
 └───────────────────────┬──────────────────────────────────────┘
@@ -26,6 +27,7 @@
 │    models / ports / events / notices / financials / industry /│
 │    analysis_task / investigation / watchlist / entity_linking │
 │    core/indicators（纯函数计算，含跨资产统计量）              │
+│    core/scenario（协方差/压力变换/VaR/ES/历史窗口，D4）       │
 └───────────────────────▲──────────────────────────────────────┘
                         │ 实现 ports
 ┌───────────────────────┴──────────────────────────────────────┐
@@ -186,13 +188,13 @@ Composition Root 在启动时装配。所以换数据源只改 `infrastructure/`
 
 ```
 $ pytest tests -q
-231 passed in 2.2s
+261 passed in 3.9s
 ```
 
 | 文件 | 用例 | 覆盖 |
 |---|---|---|
 | `test_indicators.py` | 19 | 纯函数计算（含暴力/随机对照） |
-| `test_architecture.py` | 18 | **完全不联网**，假 Provider / 假工具注入 |
+| `test_architecture.py` | 21 | **完全不联网**，假 Provider / 假工具注入 + 失败冷却 |
 | `test_llm.py` | 14 | 假 LLM：幻觉拦截、置信度封顶、降级 |
 | `test_maintenance.py` | 13 | 保留策略、自选股、刷新编排 |
 | `test_threading.py` | 4 | SQLite 跨线程 |
@@ -205,6 +207,7 @@ $ pytest tests -q
 | `test_financials.py` | 14 | 财务列名映射、快照仓储、TTL、与指标优先级（A1） |
 | `test_industries.py` | 13 | 行业清单、监控列表、行业指数事件与 scope（B1） |
 | `test_tasks.py` | 16 | 分析任务校验、持久化、一键重跑（C1） |
+| `test_scenario.py` | 27 | 情景分析：协方差/压力变换/VaR/ES/最差窗口/β 传导（D4） |
 | `test_auto_investigate.py` | 8 | 自动调查的严重度门槛/条数上限/去重/失败隔离（B3） |
 
 架构测试覆盖：
@@ -223,6 +226,9 @@ $ pytest tests -q
 | 财务快照优先于静态映射表 | A1 的数据来源优先级可断言 |
 | 行业指数事件带 `scope=industry` | 行业与个股事件不会串台 |
 | 自动调查只挑 high 且按事件去重 | 「自动化」不会退化成「每次全查」 |
+| 逐标的 β 加权 = 组合 β / 冲击贡献可加 | 情景分析的传导链自洽 |
+| 相关性压到 1 时 σ_p = Σwσ | 压力变换的数学边界可断言 |
+| 失败源进入冷却期、`prefer` 可绕过 | 降级的「快」不牺牲可控性 |
 
 **能做到「不联网跑通全链路」，就是解耦成功的证据**——如果代码里到处是
 `if src == "baostock"` 或 `if notice_type == "年度报告"`，这些替身根本插不进去。
@@ -238,6 +244,7 @@ $ pytest tests -q
 | 新增一个财务字段 | `domain/financials.py` 的 FIELDS + 列名映射 | Provider / 仓储 / 接口（列自动透传） |
 | 新增一个行业指数源 | 写一个 `BasePriceProvider` 子类 | 行业服务、规则、接口、前端 |
 | 新增一种分析任务结果块 | `AnalysisTaskService.run()` 里追加一段 | 任务表结构、前端列表 |
+| 新增一种情景假设 | `core/scenario.py` 加一个变换函数 + `ScenarioService` 调用一次 | 前端滑杆、接口（参数可选） |
 | 换数据库 | 换 `repositories/` 的实现 | 领域层、应用层 |
 | 接入另一家大模型 | 写一个满足 `LLMClient` 协议的类，注入 Agent | 报告结构、证据收集、追问 |
 | 换前端框架 | 重写 `frontend/` | 后端全部 |
@@ -259,4 +266,4 @@ $ pytest tests -q
 | D1 自动异常检测 | `ZScoreRule`（无需用户写规则） |
 | D2 多步骤调查 | `InvestigationTask` 列表 + 逐任务执行（见 HANDOFF 的不足说明） |
 | D3 跨资产分析 | `CrossAssetAnalyzer` + 指数基准 + 前端跨资产面板 |
-| D4 情景分析 | 未实现（指标计算与数据已具备） |
+| D4 情景分析 | `core/scenario` + `ScenarioService` + `/api/scenario` + 前端面板 |

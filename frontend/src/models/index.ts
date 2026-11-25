@@ -454,3 +454,68 @@ export interface TaskRunDTO {
     note?: string;
   } | null;
 }
+
+// ============================================================
+// 情景分析（D4）
+// ============================================================
+export interface ScenarioAssetDTO {
+  code: string;
+  name: string;
+  weight: number;
+  beta: number | null;
+  annualized_volatility: number | null;
+  impact: number | null;
+  contribution: number | null;
+  stressed_volatility: number | null;
+}
+
+export interface ScenarioReplayDTO {
+  window_start: string;
+  window_end: string;
+  portfolio_return: number;
+  assets: { code: string; name: string; return: number }[];
+}
+
+export interface ScenarioAssumptionsDTO {
+  market_shock: number;
+  vol_multiplier: number;
+  correlation_stress: number;
+  drawdown: number | null;
+  horizon_days: number;
+}
+
+export interface ScenarioBaselineDTO {
+  annualized_return: number | null;
+  annualized_volatility: number | null;
+  beta: number | null;
+  max_drawdown: number | null;
+  var_1d_95: number | null;
+  var_1d_99: number | null;
+  es_1d_95: number | null;
+  var_horizon_95: number | null;
+}
+
+export interface ScenarioStressedDTO {
+  annualized_volatility: number | null;
+  var_1d_95: number | null;
+  var_1d_99: number | null;
+  es_1d_95: number | null;
+  var_horizon_95: number | null;
+  portfolio_impact: number | null;
+  drawdown_impact: number | null;
+}
+
+export interface ScenarioDTO {
+  start: string;
+  end: string;
+  n_days: number;
+  horizon_days: number;
+  benchmark: { symbol: string; name: string; available: boolean };
+  assumptions: ScenarioAssumptionsDTO;
+  weights: Record<string, number>;
+  baseline: ScenarioBaselineDTO;
+  stressed: ScenarioStressedDTO;
+  assets: ScenarioAssetDTO[];
+  historical_replay: ScenarioReplayDTO | null;
+  notes: string[];
+}

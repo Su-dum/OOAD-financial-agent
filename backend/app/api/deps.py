@@ -29,6 +29,7 @@ from ..application.monitoring_service import EventMonitor
 from ..application.news_service import NewsIngestService
 from ..application.notice_service import NoticeIngestService
 from ..application.refresh_service import RefreshService
+from ..application.scenario_service import ScenarioService
 from ..application.task_service import AnalysisTaskService
 from ..infrastructure.catalog import CsvStockCatalog
 from ..infrastructure.llm.client import LLMConfig, OpenAIChatClient, load_dotenv
@@ -107,6 +108,8 @@ class Services:
         self.index_provider = SinaIndexProvider(cache=self.cache, log=quiet)
         self.cross = CrossAssetAnalyzer(self.market, catalog=self.catalog,
                                         benchmark=self.index_provider, log=quiet)
+        # 情景分析（D4）：复用 cross 的取数/对齐/基准
+        self.scenario = ScenarioService(self.cross, catalog=self.catalog, log=quiet)
         self.monitor = EventMonitor.default(self.market, notices=self.notice_repo,
                                             rulebook=self.alerts, log=quiet)
         tools = [

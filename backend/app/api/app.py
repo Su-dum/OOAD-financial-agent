@@ -17,6 +17,7 @@ from .routes import financials as financials_routes
 from .routes import industries as industries_routes
 from .routes import maintenance as maintenance_routes
 from .routes import notices as notices_routes
+from .routes import scenario as scenario_routes
 from .routes import stocks as stocks_routes
 from .routes import tasks as tasks_routes
 
@@ -48,6 +49,7 @@ def create_app() -> FastAPI:
     app.include_router(alerts_routes.router)
     app.include_router(chat_routes.router)
     app.include_router(tasks_routes.router)
+    app.include_router(scenario_routes.router)
     app.include_router(maintenance_routes.router)
 
     @app.get("/api/health", tags=["system"], summary="健康检查")

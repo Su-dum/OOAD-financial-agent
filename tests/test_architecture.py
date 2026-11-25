@@ -136,6 +136,51 @@ def test_chain_falls_back_when_first_fails():
     assert bad.request_count == 1 and good.request_count == 1
 
 
+def test_chain_cools_down_failed_provider():
+    """失败的源在冷却期内被跳过，后续请求不再浪费时间。"""
+    bad = FakeProvider(name="bad", fail=True)
+    good = FakeProvider(name="good")
+    bad.priority, good.priority = 10, 20
+    chain = ProviderChain([bad, good], log=None, fail_cooldown=60)
+    market = MarketDataService(chain, catalog=StubCatalog())
+
+    assert market.get_series("600519", "2026-01-01", "2026-01-05").source == "good"
+    assert bad.request_count == 1
+    assert chain.in_cooldown("bad") is True
+
+    market.get_series("600519", "2026-01-01", "2026-01-05")
+    assert bad.request_count == 1              # 第二次没有再碰 bad
+    assert good.request_count == 2
+
+
+def test_chain_prefer_bypasses_cooldown():
+    """用户显式指定源时，即使它在冷却期也要尝试。"""
+    bad = FakeProvider(name="bad", fail=True)
+    good = FakeProvider(name="good")
+    bad.priority, good.priority = 10, 20
+    chain = ProviderChain([bad, good], log=None, fail_cooldown=60)
+    market = MarketDataService(chain, catalog=StubCatalog())
+    market.get_series("600519", "2026-01-01", "2026-01-05")
+    assert chain.in_cooldown("bad") is True
+
+    market.get_series("600519", "2026-01-01", "2026-01-05", source="bad")
+    assert bad.request_count == 2              # prefer 绕过了冷却
+
+
+def test_chain_cooldown_expires():
+    bad = FakeProvider(name="bad", fail=True)
+    good = FakeProvider(name="good")
+    bad.priority, good.priority = 10, 20
+    chain = ProviderChain([bad, good], log=None, fail_cooldown=0.01)
+    market = MarketDataService(chain, catalog=StubCatalog())
+    market.get_series("600519", "2026-01-01", "2026-01-05")
+    import time
+    time.sleep(0.05)
+    assert chain.in_cooldown("bad") is False
+    market.get_series("600519", "2026-01-01", "2026-01-05")
+    assert bad.request_count == 2
+
+
 def test_chain_filters_untrustworthy_when_returns_required():
     """东财那类「复权口径不对」的源，在需要算收益率时必须被跳过。"""
     risky = FakeProvider(name="risky", returns_trustworthy=False)

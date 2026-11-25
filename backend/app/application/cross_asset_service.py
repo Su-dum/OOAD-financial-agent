@@ -109,7 +109,7 @@ class CrossAssetAnalyzer:
                         note="所选标的没有共同交易日（可能停牌或区间太短）")
 
         # 基准：先用「基准源」，拿不到就退回把第一只标的当基准
-        bench = self._benchmark(benchmark, dates, start, end)
+        bench = self.benchmark_aligned(benchmark, dates, start, end)
         bench_rets = ind.daily_returns(bench["closes"]) if bench else None
 
         assets = []
@@ -159,9 +159,13 @@ class CrossAssetAnalyzer:
                     benchmark=bench)
 
     # ---------------- 内部 ----------------
-    def _benchmark(self, symbol: Optional[str], dates: list,
-                   start: str, end: str) -> Optional[dict]:
-        """基准序列：按传入 symbol 取；没有指数源或对齐不足就返回 None。"""
+    def benchmark_aligned(self, symbol: Optional[str], dates: list,
+                          start: str, end: str) -> Optional[dict]:
+        """基准序列：按传入 symbol 取，并按 `dates` 严格对齐。
+
+        公共方法（D4 情景分析也要用基准）：返回 None 表示「没有指数源 / 取数失败 /
+        与标的交易日重叠不足」，调用方需要自己处理缺基准的情况。
+        """
         if not symbol or self.benchmark is None:
             return None
         try:

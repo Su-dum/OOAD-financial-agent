@@ -10,8 +10,9 @@
  *   6. 分析任务 —— 保存「标的 + 区间 + 对比组」，一键重跑
  *   7. 行业监控 —— 申万一级行业指数 + 行业事件
  *   8. 跨资产对比 —— 相对表现 / 相关性 / 相对基准
- *   9. 追问 —— 自然语言提问与条件修改
- *  10. 调查报告 —— 事实/推测分栏 + 证据编号
+ *   9. 情景分析 —— 改假设（冲击/波动/相关性/回撤）看组合影响
+ *  10. 追问 —— 自然语言提问与条件修改
+ *  11. 调查报告 —— 事实/推测分栏 + 证据编号
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { StockSearch } from "./components/StockSearch";
@@ -26,6 +27,7 @@ import { CrossPanel } from "./components/CrossPanel";
 import { ChatPanel } from "./components/ChatPanel";
 import { IndustryPanel } from "./components/IndustryPanel";
 import { TaskPanel } from "./components/TaskPanel";
+import { ScenarioPanel } from "./components/ScenarioPanel";
 import { services } from "./services";
 import type { WatchItem } from "./services/MaintenanceService";
 import { Indicator, InvestigationReport, MarketEvent, Series } from "./models";
@@ -270,6 +272,8 @@ export default function App() {
       <IndustryPanel onError={setError} />
 
       <CrossPanel codes={crossCodes} start={range.start} end={range.end} />
+
+      <ScenarioPanel codes={crossCodes} start={range.start} end={range.end} />
 
       <ChatPanel key={code} code={code} start={range.start} end={range.end}
                  onApplyRange={applyRange} onAlertsChanged={() => void refreshEvents()} />

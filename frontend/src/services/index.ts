@@ -8,6 +8,7 @@ import { ChatService } from "./ChatService";
 import { AlertService } from "./AlertService";
 import { IndustryService } from "./IndustryService";
 import { TaskService } from "./TaskService";
+import { ScenarioService } from "./ScenarioService";
 
 const http = new HttpClient("/api");
 
@@ -21,9 +22,11 @@ export const services = {
   alerts: new AlertService(http),
   industries: new IndustryService(http),
   tasks: new TaskService(http),
+  scenario: new ScenarioService(http),
 };
 
 export {
   StockService, EventService, ReportService, MaintenanceService,
-  ChatService, AlertService, IndustryService, TaskService, HttpClient,
+  ChatService, AlertService, IndustryService, TaskService, ScenarioService,
+  HttpClient,
 };

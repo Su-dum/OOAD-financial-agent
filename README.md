@@ -34,10 +34,10 @@
 | **自然语言追问（C2）** | ✅ 意图路由 + 证据编号 + 条件修改 | `conversation_service.py` |
 | **图表（C3）** | ✅ 手写 SVG：走势图 / 相对表现 / 相关性热力表 / 行业指数 | `frontend/src/components/` |
 | **跨资产分析（D3）** | ✅ 净值 / 相关系数 / 基准 β / 跟踪误差 | `cross_asset_service.py` |
+| **情景分析（D4）** | ✅ 市场冲击 / 波动倍数 / 相关性压力 / 直接回撤 → 组合 VaR 与历史最差窗口 | `scenario_service.py` + `core/scenario.py` |
 | 一键更新 + 保留策略 | ✅ 按钮刷新（新闻/公告/财务/行业/事件/自动调查）+ 90 天裁剪 | `refresh_service.py` |
-| **FastAPI 接口** | ✅ 37 个路径 | `api/routes/` |
-| **React 前端** | ✅ 指标/图表/事件/报告/追问/跨资产/预警/任务/行业 | `frontend/` |
-| D4 情景分析 | ⬜ 数据齐，逻辑未写 | — |
+| **FastAPI 接口** | ✅ 38 个路径 | `api/routes/` |
+| **React 前端** | ✅ 指标/图表/事件/报告/追问/跨资产/预警/任务/行业/情景 | `frontend/` |
 | D2 真·动态多步调查 | 🟡 形式满足（固定流水线，非 ReAct） | `investigation_service.py` |
 | 需求用户故事 / UML | ⬜ | — |
 
@@ -58,8 +58,20 @@
 | 000001 平安银行 | +11.26% | 16.74% | 0.010 | 0.010 |
 | 300750 宁德时代 | −37.27% | 37.89% | 1.023 | 0.482 |
 
-**验证**：231 个测试（40 公告 + 23 追问 + 21 预警 + 19 指标 + 18 架构 + 17 跨资产
-+ 16 任务 + 14 财务 + 14 LLM + 13 行业 + 13 运维 + 8 自动调查 + 6 采集 + 5 兼容 + 4 并发）
+情景分析实测（2026-11-25，等权三只票，冲击 −10% / 波动 ×1.5 / 相关 0.6）：
+
+| 指标 | 基线 | 压力后 |
+|---|---|---|
+| 年化波动 | 18.6% | **35.4%** |
+| 1 日 VaR 95% | 1.97% | **3.70%** |
+| 1 日 VaR 99% | 2.77% | **5.22%** |
+| 20 日 VaR 95% | 9.42% | **17.16%** |
+| 市场冲击传导 | — | **−3.29%**（其中宁德 −3.53%） |
+| 历史最差 20 日窗口 | — | **−9.03%**（2026-09-01 ~ 09-29） |
+
+**验证**：261 个测试（40 公告 + 27 情景 + 23 追问 + 21 架构 + 21 预警 + 19 指标
++ 17 跨资产 + 16 任务 + 14 财务 + 14 LLM + 13 行业 + 13 运维 + 8 自动调查
++ 6 采集 + 5 兼容 + 4 并发）
 + pandas 独立实现交叉验证
 （5 项指标对齐 `1e-9`，相关系数/β 与 pandas 完全一致）+ 复权恒等式检验。
 
@@ -80,11 +92,14 @@
 │   │   ├── investigation.py    #   Evidence / InvestigationReport
 │   │   ├── watchlist.py        #   WatchItem / Watchlist（聚合根）
 │   │   └── entity_linking.py   #   新闻 → 股票 实体链接
-│   ├── core/indicators.py      # 纯函数：收益/风险/估值 + 相关系数/beta/跟踪误差
+│   ├── core/                   # 纯函数计算（无 I/O，可单测）
+│   │   ├── indicators.py       #   收益/风险/估值 + 相关系数/beta/跟踪误差
+│   │   └── scenario.py         #   协方差/压力变换/VaR/ES/历史最差窗口（D4）
 │   ├── application/            # 应用层：只依赖抽象
-│   │   ├── market_service.py   #   ProviderChain + MarketDataService
+│   │   ├── market_service.py   #   ProviderChain（失败冷却）+ MarketDataService
 │   │   ├── analysis_service.py #   FinancialAnalyzer（财务快照优先）
 │   │   ├── cross_asset_service.py  # CrossAssetAnalyzer（D3）
+│   │   ├── scenario_service.py     # ScenarioService（D4 假设→影响）
 │   │   ├── monitoring_service.py   # EventMonitor（两条规则链 + evaluate_series）
 │   │   ├── alert_config_service.py # AlertConfigService（C1 三级配置）
 │   │   ├── financial_service.py    # 财务快照 TTL/刷新（A1）
@@ -107,15 +122,18 @@
 │   │   └── providers/cache.py  #   CSV 行情缓存
 │   ├── api/                    # 接口层
 │   │   ├── app.py  deps.py     #   FastAPI 装配 + Composition Root
-│   │   └── routes/             #   stocks / events / notices / alerts / chat / maintenance
-│   └── db.py                   # SQLite 建表 + 轻量迁移（notice / alert_rule / event.source_url）
+│   │   └── routes/             #   stocks / financials / events / notices / industries /
+│   │                           #   alerts / chat / tasks / scenario / maintenance
+│   └── db.py                   # SQLite 建表 + 轻量迁移
 ├── frontend/src/
-│   ├── models/index.ts         # 与后端 DTO 对应的视图对象（含图表/跨资产/追问/预警）
-│   ├── services/               # HttpClient / Stock / Event / Report / Maintenance / Chat / Alert
+│   ├── models/index.ts         # 与后端 DTO 对应的视图对象（图表/跨资产/情景/追问/预警）
+│   ├── services/               # HttpClient / Stock / Event / Report / Maintenance / Chat /
+│   │                           # Alert / Industry / Task / Scenario
 │   └── components/             # StockSearch / IndicatorPanel / PriceChart / EventList
 │                               # ReportView / RefreshBar / WatchlistEvents
 │                               # CrossPanel / NetValueChart / CorrelationMatrix
 │                               # ChatPanel / AlertConfig / IndustryPanel / TaskPanel
+│                               # ScenarioPanel
 ├── docs/
 │   ├── architecture.md         # ★ 分层、类职责、设计模式
 │   ├── frontend-guide.md       # ★ 前端使用说明（界面、流程、FAQ）
@@ -124,6 +142,7 @@
 │   ├── notices.md              # ★ 公告事件（B2）：87 种类型 -> 11 类的映射与坑
 │   ├── industry.md             # ★ 行业监控（B1）：行业指数 + scope
 │   ├── cross-asset.md          # ★ 跨资产分析（D3）：对齐、相关、β
+│   ├── scenario.md             # ★ 情景分析（D4）：假设、公式、实测
 │   ├── conversation.md         # ★ 追问 / 预警配置 / 分析任务（C2 / C1）
 │   ├── indicators.md           # 指标公式、验证、财务快照（A1）
 │   ├── llm.md                  # LLM 接入与防幻觉
@@ -136,7 +155,7 @@
 │   ├── verify_indicators.py    # 指标验收
 │   ├── check_llm.py            # LLM 连通性与抗幻觉自检
 │   └── probes/                 # 11 个数据源探针 + outputs/
-├── tests/                      # 15 个测试文件，231 个用例
+├── tests/                      # 16 个测试文件，261 个用例
 ├── data/
 │   ├── seed/                   # ✅ 提交：行业结构、股票映射 CSV
 │   ├── cache/market/           # ⛔ 忽略：行情缓存
@@ -214,7 +233,7 @@ python scripts/verify_indicators.py       # 指标验收（命中缓存，秒级
 
 ---
 
-## 主要接口（37 个路径）
+## 主要接口（38 个路径）
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -226,6 +245,7 @@ python scripts/verify_indicators.py       # 指标验收（命中缓存，秒级
 | GET | `/api/stocks/compare?codes=600519,000001` | 跨标的比较（A3） |
 | GET | `/api/stocks/{code}/periods` | **跨期比较**：近 1/3/6/12/24 个月（A3） |
 | GET | `/api/stocks/cross?codes=...` | **跨资产分析**：净值 / 相关性 / 基准 β（D3） |
+| **POST** | **`/api/scenario`** | **情景分析**：市场冲击 / 波动倍数 / 相关性压力 / 回撤（D4） |
 | GET | `/api/stocks/{code}/events` | 事件检测（B2/D1，行情类 + 公告类） |
 | POST | `/api/stocks/investigate` | 发起事件调查（B3/D2） |
 | GET | `/api/industries` | **31 个申万一级行业**（含监控状态） |
@@ -303,15 +323,19 @@ python scripts/verify_indicators.py       # 指标验收（命中缓存，秒级
 14. **自动调查必须限流。** 刷新时只对 `severity=high`、且没生成过报告的事件自动调查，
     每次最多 2 条，默认用模板结论——否则一次刷新会从 20 秒变成几分钟。
 
+15. **baostock 会半挂起，链必须能快速绕过它。** 它没有 socket 超时，服务端卡住时请求会
+    永久阻塞。项目给它的 socket 加了 5 秒超时、失败即降级，并让 `ProviderChain`
+    记住「谁刚失败」（默认冷却 300 秒）——实测首次跨资产请求 37 秒→后续 0.06 秒。
+    情景分析/跨资产面板默认走新浪快源，不碰 baostock。
+
 ---
 
 ## 接下来要做
 
-1. **D4 情景分析** —— 「波动率/回撤假设冲击」推演，复用现有指标与跨资产计算（高级项最后一块）
-2. **D2 真·动态多步调查** —— 现在是一次跑完 3 个工具；要改成 ReAct 循环（模型决定下一步）
-3. **行业事件的调查** —— 行业事件目前只能检测、不能「调查」；需要把行业名作为关键词
+1. **D2 真·动态多步调查** —— 现在是一次跑完 3 个工具；要改成 ReAct 循环（模型决定下一步）
+2. **行业事件的调查** —— 行业事件目前只能检测、不能「调查」；需要把行业名作为关键词
    接进 `NewsSearchTool`（`docs/industry.md` 限制 3）
-4. **需求用户故事 + UML** —— 代码结构已稳定，可直接照 `docs/architecture.md` 画
+3. **需求用户故事 + UML** —— 代码结构已稳定，可直接照 `docs/architecture.md` 画
 
 ### 暂缓的优化（不急，别忘）
 

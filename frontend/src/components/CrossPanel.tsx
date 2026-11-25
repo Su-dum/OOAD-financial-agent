@@ -44,7 +44,7 @@ export function CrossPanel({ codes, start, end, onError }: Props) {
     setError("");
     try {
       const got = await services.stocks.cross(list, {
-        start, end, benchmark: "sh000300",
+        start, end, benchmark: "sh000300", source: "sina",
       });
       setData(got);
     } catch (e) {

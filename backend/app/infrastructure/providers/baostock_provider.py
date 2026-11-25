@@ -4,9 +4,14 @@
 口径最可信：非除权日「前复权收益」与「不复权收益」完全一致（偏差 0），
 且同一次请求就带回 peTTM / pbMRQ / psTTM / pcfNcfTTM。
 缺点：服务端不稳定（实测 3s 恶化到 57s 甚至挂起），所以必须配缓存。
+
+⚠️ baostock 的 socket 没有超时保护：服务端半挂起时请求会**永久阻塞**，
+把整个请求线程拖死。这里用 `socket.setdefaulttimeout()` 给它的 socket 加超时，
+超时后抛异常 -> 交给重试/降级链处理（配合 `ProviderChain` 的冷却机制快速切到新浪）。
 """
 import io
 import contextlib
+import socket
 import threading
 
 from .base import BasePriceProvider, to_float
@@ -28,29 +33,40 @@ class BaostockProvider(BasePriceProvider):
     supports_valuation = True
     date_fmt = "%Y-%m-%d"
 
+    def __init__(self, cache=None, log=print, attempts: int = 2,
+                 base_wait: float = 1.0, timeout: float = 6.0):
+        super().__init__(cache=cache, log=log, attempts=attempts,
+                         base_wait=base_wait)
+        self.timeout = timeout
+
     def _request(self, ref: StockRef, start: str, end: str, adjust: str):
         flag = _ADJ.get(adjust)
         if flag is None:
             raise ValueError(f"adjust 只能是 {list(_ADJ)}，收到 {adjust}")
         import baostock as bs
-        with _LOCK:
-            with contextlib.redirect_stdout(io.StringIO()):
-                lg = bs.login()
-            try:
-                if lg.error_code != "0":
-                    raise RuntimeError(f"baostock 登录失败: {lg.error_msg}")
-                rs = bs.query_history_k_data_plus(
-                    ref.bs_code, _FIELDS, start_date=start, end_date=end,
-                    frequency="d", adjustflag=flag)
-                if rs.error_code != "0":
-                    raise RuntimeError(f"baostock 查询失败: {rs.error_msg}")
-                rows = []
-                while rs.next():
-                    rows.append(rs.get_row_data())
-                return rs.fields, rows
-            finally:
+        old_timeout = socket.getdefaulttimeout()
+        socket.setdefaulttimeout(self.timeout)
+        try:
+            with _LOCK:
                 with contextlib.redirect_stdout(io.StringIO()):
-                    bs.logout()
+                    lg = bs.login()
+                try:
+                    if lg.error_code != "0":
+                        raise RuntimeError(f"baostock 登录失败: {lg.error_msg}")
+                    rs = bs.query_history_k_data_plus(
+                        ref.bs_code, _FIELDS, start_date=start, end_date=end,
+                        frequency="d", adjustflag=flag)
+                    if rs.error_code != "0":
+                        raise RuntimeError(f"baostock 查询失败: {rs.error_msg}")
+                    rows = []
+                    while rs.next():
+                        rows.append(rs.get_row_data())
+                    return rs.fields, rows
+                finally:
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        bs.logout()
+        finally:
+            socket.setdefaulttimeout(old_timeout)
 
     def _parse(self, raw, code: str, adjust: str) -> list[PriceRecord]:
         fields, rows = raw
