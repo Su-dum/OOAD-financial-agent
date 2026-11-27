@@ -74,10 +74,16 @@ export function CrossPanel({ codes, start, end, onError }: Props) {
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="逗号分隔的代码，如 600519,000001,300750"
+          placeholder="代码逗号分隔：个股 600519,000001 ／ 行业 801120,801080"
         />
         <button onClick={() => void load(input)} disabled={loading}>对比</button>
       </div>
+      <p className="provenance" style={{ marginTop: 0 }}>
+        <b>行业也能参与比较</b>：申万一级行业指数代码以 <code>801</code> 开头，
+        如 <code>801120</code> 食品饮料、<code>801080</code> 电子、<code>801780</code> 银行。
+        混着填就能算「个股 vs 行业」或「行业 vs 行业」的相关性与相对表现
+        （行业指数取申万，日频、不复权）。
+      </p>
 
       {error && <p className="error">{error}</p>}
 
@@ -106,6 +112,9 @@ export function CrossPanel({ codes, start, end, onError }: Props) {
                 {data.dto.assets.map((a) => (
                   <tr key={a.code}>
                     <td>
+                      {a.is_industry && (
+                        <span className="badge" style={{ marginRight: 6 }}>行业</span>
+                      )}
                       <b>{a.code}</b> {a.name}
                     </td>
                     <td className="muted">{a.industry_l1 || "—"}</td>
@@ -131,7 +140,14 @@ export function CrossPanel({ codes, start, end, onError }: Props) {
           )}
 
           <h3>相关性矩阵</h3>
-          <CorrelationMatrix correlation={data.dto.correlation} />
+          <CorrelationMatrix
+            correlation={data.dto.correlation}
+            names={Object.fromEntries(
+              data.dto.assets.map((a) => [
+                a.code, { name: a.name, is_industry: a.is_industry },
+              ]),
+            )}
+          />
         </>
       )}
 

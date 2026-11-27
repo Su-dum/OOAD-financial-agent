@@ -150,6 +150,11 @@ export function ScenarioPanel({ codes, start, end }: Props) {
 
       {data && (
         <>
+          <p className="provenance" style={{ marginTop: 0 }}>
+            两类指标性质不同，<b>并列但不互相替代</b>：
+            「市场冲击传导 / 情景合计影响 / 回本需涨幅」是<b>特定情形的点估计</b>（这种情形亏多少）；
+            「年化波动 / VaR / ES」是<b>分布法</b>，由波动率与相关性假设推出（通常能亏多少）。
+          </p>
           <div className="scenario-cards">
             <div className="scenario-card">
               <span className="k">市场冲击传导</span>
@@ -184,11 +189,29 @@ export function ScenarioPanel({ codes, start, end }: Props) {
             </div>
             {useDrawdown && (
               <div className="scenario-card">
-                <span className="k">直接回撤</span>
-                <span className="v down">{pct(data.stressed.drawdown_impact)}</span>
-                <span className="muted">压力测试口径</span>
+                <span className="k">情景合计影响</span>
+                {/* 不着色：这是"某种情形的损失幅度"，不是行情涨跌，红绿会被误读 */}
+                <span className="v">
+                  {pctSigned(data.stressed.total_impact)}
+                </span>
+                <span className="muted">
+                  冲击 {pctSigned(data.stressed.portfolio_impact)}
+                  {" ⊕ "}回撤 {pctSigned(data.stressed.drawdown_impact)}
+                  {" （复利，非相加）"}
+                </span>
               </div>
             )}
+            <div className="scenario-card">
+              <span className="k">回本需涨幅</span>
+              <span className="v">
+                {pctSigned(data.stressed.recovery_gain)}
+              </span>
+              <span className="muted">
+                {useDrawdown
+                  ? `从 ${pctSigned(data.stressed.total_impact)} 回到原点`
+                  : "仅市场冲击（未施加回撤）"}
+              </span>
+            </div>
           </div>
 
           <h3>逐标的贡献</h3>

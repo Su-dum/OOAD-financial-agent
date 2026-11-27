@@ -234,3 +234,114 @@ def test_series_points_returns_chart_payload():
 
 def test_series_points_missing_code_returns_none():
     assert build_analyzer().series_points("999999", DATES[0], DATES[-1]) is None
+
+
+# ============================================================
+# D3：行业指数参与跨资产分析（PDF 原文 "assets, companies, or industries"）
+# ============================================================
+from backend.app.application.cross_asset_service import CrossAssetAnalyzer
+
+
+class IndustryStub:
+    """假行业指数源：返回固定的 5 个交易日收盘价。"""
+
+    def __init__(self, closes=(100.0, 102.0, 101.0, 104.0, 106.0)):
+        self.closes = list(closes)
+        self.calls = []
+
+    def fetch(self, code, start, end, adjust="qfq", refresh=False):
+        from backend.app.domain.models import PriceRecord, PriceSeries
+        self.calls.append((code, start, end, adjust))
+        dates = [f"2026-03-{i+2:02d}" for i in range(len(self.closes))]
+        return PriceSeries(
+            code=str(code), adjust="none", source="industry_sw",
+            records=[PriceRecord(code=str(code), date=d, open=c, high=c, low=c,
+                                 close=c, adjust="none", source="industry_sw")
+                     for d, c in zip(dates, self.closes)])
+
+
+class _CatalogWithIndustry:
+    def get(self, code):
+        if str(code) == "600519":
+            return dict(name="贵州茅台", industry_l1_name="食品饮料")
+        return {}
+
+    def name_of(self, code):
+        return (self.get(code) or {}).get("name", "")
+
+    def industry_name(self, code):
+        return {"801120": "食品饮料", "801080": "电子"}.get(str(code), "")
+
+
+def test_is_industry_code():
+    assert CrossAssetAnalyzer.is_industry_code("801120")
+    assert CrossAssetAnalyzer.is_industry_code("801120.SI")
+    assert not CrossAssetAnalyzer.is_industry_code("600519")
+    assert not CrossAssetAnalyzer.is_industry_code("sh000300")
+    assert not CrossAssetAnalyzer.is_industry_code("")
+
+
+def test_meta_of_distinguishes_industry_from_stock():
+    a = CrossAssetAnalyzer(market=None, catalog=_CatalogWithIndustry(), industry=IndustryStub())
+    stock = a.meta_of("600519")
+    assert stock == dict(name="贵州茅台", industry_l1="食品饮料", is_industry=False)
+    ind = a.meta_of("801120")
+    assert ind == dict(name="食品饮料", industry_l1="行业指数", is_industry=True)
+
+
+def test_fetch_routes_industry_codes_to_industry_provider():
+    """801xxx 必须走行业链，不能丢给股票链（以前会被静默丢弃）。"""
+    ind = IndustryStub()
+    a = CrossAssetAnalyzer(market=None, catalog=_CatalogWithIndustry(), industry=ind)
+    got = a.fetch(["801120"], "2026-03-01", "2026-03-31")
+    assert "801120" in got
+    assert ind.calls and ind.calls[0][0] == "801120"
+    assert ind.calls[0][3] == "none"          # 指数不复权
+
+
+def test_fetch_without_industry_provider_skips_instead_of_crashing():
+    a = CrossAssetAnalyzer(market=None, catalog=_CatalogWithIndustry(), industry=None)
+    assert a.fetch(["801120"], "2026-03-01", "2026-03-31") == {}
+
+
+STOCK_DATES = ["2026-03-02", "2026-03-03", "2026-03-04", "2026-03-05", "2026-03-06"]
+
+
+def _market_with_stock():
+    return FakeMarket({"600519": make_series(
+        "600519", STOCK_DATES, [100.0, 101.5, 100.8, 102.0, 103.2])})
+
+
+def test_compare_includes_industry_with_flag_and_name():
+    """行业与个股混排时，必须能分清哪个是行业。"""
+    m = _market_with_stock()
+    ind = IndustryStub()
+    a = CrossAssetAnalyzer(market=m, catalog=_CatalogWithIndustry(), industry=ind)
+    body = a.compare(["600519", "801120"], "2026-03-01", "2026-03-31")
+    by = {x["code"]: x for x in body["assets"]}
+    assert set(by) == {"600519", "801120"}
+    assert by["801120"]["is_industry"] is True
+    assert by["801120"]["name"] == "食品饮料"
+    assert by["801120"]["industry_l1"] == "行业指数"
+    assert by["600519"]["is_industry"] is False
+    # 净值曲线也要带标记，前端才画得出图例
+    series = {s["code"]: s for s in body["net_value"]["series"]}
+    assert series["801120"]["is_industry"] is True
+    assert series["801120"]["name"] == "食品饮料"
+
+
+def test_scenario_accepts_industry_as_one_leg():
+    """D4 说 "assets or portfolios"，行业指数也应该能进组合。"""
+    from backend.app.application.scenario_service import ScenarioService
+    from backend.app.application.cross_asset_service import CrossAssetAnalyzer as CAA
+    from tests.test_cross_asset import FakeMarket
+    from tests.test_scenario import FakeCross, StubCatalog
+
+    cross = CAA(market=_market_with_stock(), catalog=_CatalogWithIndustry(),
+                industry=IndustryStub())
+    svc = ScenarioService(cross, catalog=StubCatalog(), log=None)
+    body = svc.run(["600519", "801120"], start="2026-03-01", end="2026-03-31",
+                   horizon_days=3, market_shock=-0.1)
+    names = {a["code"]: (a["name"], a["is_industry"]) for a in body["assets"]}
+    assert names["801120"] == ("食品饮料", True)
+    assert names["600519"][1] is False

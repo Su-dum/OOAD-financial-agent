@@ -16,19 +16,23 @@ from functools import lru_cache
 from pathlib import Path
 
 from ..application.alert_config_service import AlertConfigService
+from ..application.alert_feed_service import AlertFeedService
 from ..application.analysis_service import FinancialAnalyzer
 from ..application.conversation_service import ConversationAgent
 from ..application.cross_asset_service import CrossAssetAnalyzer
 from ..application.financial_service import FinancialService
 from ..application.industry_service import IndustryService
-from ..application.investigation_service import (IndicatorTool, InvestigationAgent,
-                                                NewsSearchTool, NoticeSearchTool)
+from ..application.investigation_service import (IndicatorTool, IndustryCompareTool,
+                                                InvestigationAgent, NewsSearchTool,
+                                                NoticeSearchTool)
+from ..application.investigation_planner import HeuristicPlanner
 from ..application.maintenance_service import MaintenanceService, RetentionPolicy
 from ..application.market_service import MarketDataService
 from ..application.monitoring_service import EventMonitor
 from ..application.news_service import NewsIngestService
 from ..application.notice_service import NoticeIngestService
-from ..application.refresh_service import RefreshService
+from ..application.refresh_service import RefreshService, resolve_auto_mode
+from ..application.scheduler_service import MonitorScheduler
 from ..application.scenario_service import ScenarioService
 from ..application.task_service import AnalysisTaskService
 from ..infrastructure.catalog import CsvStockCatalog
@@ -50,6 +54,8 @@ from ..infrastructure.repositories.financial_repository import (
     SqliteFinancialRepository)
 from ..infrastructure.repositories.industry_watch_repository import (
     SqliteIndustryWatchRepository)
+from ..infrastructure.repositories.monitor_run_repository import (
+    SqliteMonitorRunRepository)
 from ..infrastructure.repositories.news_repository import SqliteNewsRepository
 from ..infrastructure.repositories.notice_repository import SqliteNoticeRepository
 from ..infrastructure.repositories.report_repository import SqliteReportRepository
@@ -106,25 +112,45 @@ class Services:
                                           financial=self.financial)
         # 指数单独成链：指数代码（sh000300）不能和股票代码混在一条链里
         self.index_provider = SinaIndexProvider(cache=self.cache, log=quiet)
+        # 行业指数源（申万一级 801xxx）：B1 行业监控、D3 跨资产（行业参与比较）、
+        # D4 情景分析（行业可入组合）、动态调查的「行业联动」都要用，所以在这里装配
+        self.industry_provider = SwIndustryIndexProvider(cache=self.cache, log=quiet)
+        # 跨资产（D3）：除了股票链，还接上行业指数链，让 801xxx 也能参与相关/相对表现
         self.cross = CrossAssetAnalyzer(self.market, catalog=self.catalog,
-                                        benchmark=self.index_provider, log=quiet)
+                                        benchmark=self.index_provider,
+                                        industry=self.industry_provider, log=quiet)
         # 情景分析（D4）：复用 cross 的取数/对齐/基准
         self.scenario = ScenarioService(self.cross, catalog=self.catalog, log=quiet)
         self.monitor = EventMonitor.default(self.market, notices=self.notice_repo,
                                             rulebook=self.alerts, log=quiet)
+        # ---- 调查工具（B3 / D2）----
+        # 动作菜单由工具的 `actions` 声明推导：
+        #   news_search / news_widen / notice_search / notice_deep / indicator / industry
         tools = [
             NewsSearchTool(self.news_repo, log=quiet),
             NoticeSearchTool(self.notice_provider, repo=self.notice_repo,
                              deep=False, log=quiet),
             IndicatorTool(self.analyzer, log=quiet),
+            IndustryCompareTool(self.industry_provider, catalog=self.catalog,
+                                log=quiet),
         ]
+        # 手动调查：可以用 LLM 逐步决策，也允许下公告 PDF 正文（慢但更实）
         self.agent = InvestigationAgent(
-            tools=tools,
-            llm=self.llm_client,          # None 时自动退回模板结论
-            log=quiet,
-        )
-        # 自动调查用的「快」agent：永远走模板结论，保证刷新时长可控
-        self.agent_fast = InvestigationAgent(tools=tools, llm=None, log=quiet)
+            tools=tools, llm=self.llm_client, catalog=self.catalog,
+            allow_deep=True, max_steps=int(os.environ.get("INVESTIGATE_MAX_STEPS", "5")),
+            log=quiet)
+        # 自动调查用的「快」agent：模板结论 + 不下 PDF，保证刷新时长可控
+        self.agent_fast = InvestigationAgent(
+            tools=tools, llm=None, catalog=self.catalog,
+            allow_deep=False, max_steps=int(os.environ.get("INVESTIGATE_MAX_STEPS", "5")),
+            log=quiet)
+        # 自动调查 + LLM 结论：**规划走规则**（每步都问一次模型会让刷新从 19s 涨到 60s+），
+        # 结论仍由 LLM 归纳。用户在界面上手动点「调查」时才会用 LLM 逐步决策。
+        self.agent_auto_llm = InvestigationAgent(
+            tools=tools, llm=self.llm_client, catalog=self.catalog,
+            planner=HeuristicPlanner(), allow_deep=False,
+            max_steps=int(os.environ.get("INVESTIGATE_MAX_STEPS", "5")),
+            log=quiet)
         # 自然语言追问（C2）：LLM 可选；没有 key 时用模板答案，功能不缺失
         self.chat = ConversationAgent(
             self.analyzer, monitor=self.monitor, notices=self.notice_repo,
@@ -135,7 +161,6 @@ class Services:
             self.task_repo, self.analyzer, monitor=self.monitor,
             cross=self.cross, catalog=self.catalog, log=quiet)
         # 行业监控（B1）：行业指数走同一套行情规则，事件 scope=industry
-        self.industry_provider = SwIndustryIndexProvider(cache=self.cache, log=quiet)
         self.industries = IndustryService(
             self.industry_repo, self.industry_provider, monitor=self.monitor,
             catalog=self.catalog, log=quiet)
@@ -147,11 +172,14 @@ class Services:
             log=quiet)
         self.maintenance = MaintenanceService(self.news_repo.con,
                                               RetentionPolicy(), log=quiet)
-        # 自动调查（B3）：默认模板结论，保证刷新时长可控；
-        # 设 AUTO_INVESTIGATE_MODE=llm 才会在刷新时调大模型（慢，演示前别开）
-        auto_mode = (os.environ.get("AUTO_INVESTIGATE_MODE") or "template").lower()
-        self.auto_mode = "llm" if auto_mode == "llm" else "template"
-        self.auto_agent = self.agent if self.auto_mode == "llm" else self.agent_fast
+        # 自动调查（B3）：默认就用 LLM 归纳结论——用户要的是「有 LLM 参与的结论」。
+        # 网关抖动不会让刷新挂掉：LLMConclusionWriter 内部有任何异常都会
+        # 自动降级到模板，并把原因写进 llm_meta.reason（report 上可见）。
+        # 想强制走模板（离线演示 / 极度在意刷新时长）设 AUTO_INVESTIGATE_MODE=template。
+        auto_mode = resolve_auto_mode(os.environ.get("AUTO_INVESTIGATE_MODE"))
+        self.auto_mode = auto_mode
+        self.auto_agent = (self.agent_auto_llm if auto_mode == "llm"
+                           else self.agent_fast)
         self.refresh = RefreshService(
             news=self.news_ingest, monitor=self.monitor,
             event_repo=self.event_repo, watchlist_repo=self.watchlist_repo,
@@ -161,6 +189,22 @@ class Services:
             industry=self.industries,
             auto_investigate=True,
             max_auto_reports=int(os.environ.get("AUTO_INVESTIGATE_MAX", "2")),
+            log=quiet)
+        # ---- 定时巡检（B1）：让「监控」从按需刷新变成自动巡检 ----
+        # 与手工「更新数据」共用同一个 RefreshService，只是排班不同，
+        # 不会出现「按钮跑一套、定时跑另一套」的行为漂移。
+        # log 单独给一个「一定会打印」的函数（不用 quiet）：巡检必须在后端日志里留痕，
+        # 否则线上排查「昨晚那档跑了没」只能靠猜。
+        self.monitor_run_repo = SqliteMonitorRunRepository(self.news_repo.con,
+                                                           log=quiet)
+        self.scheduler = MonitorScheduler(
+            self.refresh, run_repo=self.monitor_run_repo,
+            log=lambda m: print(m, flush=True))
+        # ---- 重大事件提醒（B3 的通知面）----
+        # 把「刚检测到什么」和「AI 分析好了没有」拼成前端右上角的弹窗数据。
+        self.alert_feed = AlertFeedService(
+            self.event_repo, self.report_repo,
+            min_severity=(os.environ.get("ALERT_MIN_SEVERITY") or "high").lower(),
             log=quiet)
 
     # 便于健康检查
@@ -179,7 +223,13 @@ class Services:
                 provider=self.llm_config.provider,
                 model=self.llm_config.model,
                 conclusion_writer=getattr(self.agent.writer, "name", "?"),
+                auto_investigate_mode=self.auto_mode,
             ),
+            monitor=dict(enabled=self.scheduler.config.enabled,
+                         interval_minutes=self.scheduler.config.interval_minutes,
+                         full_slots=list(self.scheduler.config.full_slots),
+                         last_run_at=(self.scheduler.status().get("last_run") or {}).get(
+                             "finished_at")),
             retention=self.maintenance.policy.describe(),
             watchlist=len(self.watchlist_repo.load()),
         )

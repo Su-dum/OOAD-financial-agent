@@ -79,7 +79,9 @@ class ScenarioService:
             betas.append(beta)
             asset_rows.append(dict(
                 code=code,
-                name=(self.catalog.name_of(code) if self.catalog else ""),
+                name=self._name_of(code),
+                is_industry=(self.cross.is_industry_code(code)
+                             if hasattr(self.cross, "is_industry_code") else False),
                 weight=round(weights[i], 6),
                 beta=None if beta is None else round(beta, 4),
                 annualized_volatility=_round(sc.annualized_volatility(rets)),
@@ -133,6 +135,15 @@ class ScenarioService:
         stressed["portfolio_impact"] = _round(portfolio_impact)
         stressed["drawdown_impact"] = _round(drawdown) if drawdown is not None else None
 
+        # ---- 情景点估计：冲击与回撤**叠成一条** ----
+        # 这两个是"某一种情形的具体数"，与上面 VaR/波动（分布法）性质不同，
+        # 并列展示但不互相替代：分布法回答"通常能亏多少"，点估计回答"这种情形亏多少"。
+        total_impact = sc.combine_impacts(portfolio_impact, drawdown)
+        stressed["total_impact"] = _round(total_impact)
+        # 回本需涨幅：亏 20% 要涨 25%，亏 50% 要涨 100%
+        stressed["recovery_gain"] = _round(sc.recovery_gain(total_impact))
+        stressed["recovery_gain_drawdown"] = _round(sc.recovery_gain(drawdown))
+
         # ---- 历史重放（最差窗口） ----
         replay = sc.worst_rolling_window(
             [returns[c] for c in found], weights, horizon_days, dates=dates[1:])
@@ -152,6 +163,16 @@ class ScenarioService:
             notes.append("基准指数不可用，市场冲击按 β=1 直接传导到每只标的")
         if weights_in is not None and any(w < 0 for w in weights_in):
             notes.append("负权重（做空）已按 0 处理")
+        if drawdown is not None:
+            notes.append(
+                "「情景合计影响」= (1+冲击传导)×(1+直接回撤)−1，按「先冲击后回撤」"
+                "复利叠加（不是相加）；若你的回撤已包含冲击，请取消勾选避免重复计算")
+            notes.append(
+                "「回本需涨幅」= |损失| / (1−|损失|)：亏 20% 需涨 25%，亏 50% 需涨 100%")
+        if total_impact <= -0.99 + 1e-9:
+            notes.append("情景跌幅触及 100% 下限，已按 −99% 处理")
+        notes.append("冲击与回撤是情景点估计，与 VaR/波动（分布法）并列、不互相替代："
+                     "前者答「这种情形亏多少」，后者答「通常能亏多少」")
         notes.append("市场冲击为一次性事件，按 β 线性传导；不构成投资建议")
         notes.append("VaR/ES 为参数法（正态假设），尾部极端行情会比估计更差")
 
@@ -174,6 +195,17 @@ class ScenarioService:
         )
 
     # ---------------- 校验 ----------------
+    def _name_of(self, code: str) -> str:
+        """标的名称：优先走 cross 的元信息（它认行业代码），再退回目录。"""
+        if hasattr(self.cross, "meta_of"):
+            try:
+                name = (self.cross.meta_of(code) or {}).get("name") or ""
+                if name:
+                    return name
+            except Exception:                         # noqa: BLE001
+                pass
+        return self.catalog.name_of(code) if self.catalog else ""
+
     @staticmethod
     def _clean_codes(codes: Sequence[str]) -> list[str]:
         out = []

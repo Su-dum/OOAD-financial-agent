@@ -101,21 +101,14 @@ class AnalysisTaskService:
             body["events"] = []
             body["event_count"] = 0
 
-        periods = []
+        # 跨期比较：复用 FinancialAnalyzer.compare_periods（A3 的唯一实现）。
+        # 原来这里又写了一遍取数+组装，和 /api/stocks/{code}/periods 是两套代码，
+        # 迟早会算出不同的数。
+        windows = []
         for label, days in period_windows(task.days):
             s, e = _range_of(days)
-            try:
-                r = self.analyzer.analyze(task.code, s, e)
-            except Exception:                           # noqa: BLE001
-                r = None
-            periods.append(dict(
-                period=label, start=s, end=e,
-                total_return=None if r is None else r.total_return,
-                annualized_volatility=None if r is None else r.annualized_volatility,
-                max_drawdown=None if r is None else r.max_drawdown,
-                sharpe=None if r is None else r.sharpe,
-                n_days=0 if r is None else r.n_days))
-        body["periods"] = periods
+            windows.append((label, s, e))
+        body["periods"] = self.analyzer.compare_periods(task.code, windows)
 
         body["cross"] = None
         if self.cross is not None and task.compare_codes:

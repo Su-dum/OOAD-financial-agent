@@ -5,7 +5,7 @@
     /series          单标的价格序列（含成交量 / 估值）
     /compare/series  多标的归一化净值序列（跨资产相对表现）
 """
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -180,13 +180,19 @@ def investigate(req: InvestigateRequest):
     svc = get_services()
     trade_date = req.trade_date or datetime.now().strftime("%Y-%m-%d")
     name = svc.market.name_of(req.code)
+    c = req.code.split(".")[0]
+    # 先把事件建出来，才能用中文事件名（`label`）拼默认 detail——
+    # 否则会把 price_drop / notice_earnings 这种内部标识写进事实栏与报告
     ev = MarketEvent(
-        code=req.code.split(".")[0], name=name,
+        code=c, name=name,
         event_type=req.event_type, trade_date=trade_date,
         detected_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         severity=req.severity, value=req.value, threshold=req.threshold,
-        detail=req.detail or f"{name or req.code} 在 {trade_date} 发生 {req.event_type}",
         rule_name="manual")
+    if req.detail:
+        ev = replace(ev, detail=req.detail)
+    else:
+        ev = replace(ev, detail=f"{name or c} 在 {trade_date} 发生「{ev.label}」")
     report = svc.agent.investigate(ev, days=req.days, question=req.question or "")
     rid = svc.report_repo.save(report) if req.persist else 0
     return {"report_id": rid, "report": report.to_dict(),

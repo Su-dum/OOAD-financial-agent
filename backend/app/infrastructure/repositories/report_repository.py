@@ -71,3 +71,47 @@ class SqliteReportRepository:
         return [dict(id=r[0], code=r[1], name=r[2], question=r[3],
                      event_date=r[4], event_type=r[5], created_at=r[6])
                 for r in self.con.execute(sql, args)]
+
+    def find_by_event(self, code: str, event_date: Optional[str],
+                      event_type: Optional[str]) -> Optional[dict]:
+        """按「事件」取报告摘要（给右上角提醒：这条事件有没有 AI 分析）。
+
+        只返回摘要而不是整份 payload——提醒里只需要一行结论 + 置信度，
+        点开时前端再按 id 拉全文。
+        """
+        if not event_date or not event_type:
+            return None
+        r = self.con.execute(
+            "SELECT id,created_at,payload FROM report "
+            "WHERE code=? AND event_date=? AND event_type=? "
+            "ORDER BY id DESC LIMIT 1",
+            (str(code).split(".")[0], event_date, event_type)).fetchone()
+        if not r:
+            return None
+        try:
+            payload = json.loads(r[2])
+        except (TypeError, ValueError):
+            payload = {}
+        meta = payload.get("llm_meta") or {}
+        conclusion = (payload.get("conclusion") or "").strip()
+        return dict(
+            id=r[0], created_at=r[1], confidence=payload.get("confidence"),
+            conclusion=conclusion,
+            headline=_first_sentence(conclusion, 90),
+            model=meta.get("model") or "",
+            provider=meta.get("provider") or "",
+            degraded=bool(meta.get("degraded")),
+            auto=bool(meta.get("auto")),
+        )
+
+
+def _first_sentence(text: str, limit: int) -> str:
+    """提醒里只放一句话：截到第一个句号/分号，再兜底截断。"""
+    if not text:
+        return ""
+    t = " ".join(text.split())
+    for sep in ("。", "；", "\n"):
+        i = t.find(sep)
+        if 0 < i <= limit:
+            return t[:i + 1]
+    return t[:limit] + ("…" if len(t) > limit else "")

@@ -263,3 +263,92 @@ def test_source_is_passed_to_market():
     svc.run(["600519", "000001"], start="2026-01-01", end="2026-03-01",
             source="sina")
     assert svc.cross.sources == ["sina"]
+
+
+# ============================================================
+# 4. 情景点估计：冲击 ⊕ 回撤（D4「portfolio-level impact」的另一半）
+# ============================================================
+from backend.app.core.scenario import combine_impacts, recovery_gain
+
+
+def test_combine_is_compounded_not_added():
+    """-3.3% 与 -15% 叠起来是 -17.8%（复利），不是 -18.3%（相加）。"""
+    total = combine_impacts(-0.033, -0.15)
+    assert total == pytest.approx(0.967 * 0.85 - 1.0)
+    assert total == pytest.approx(-0.17805)
+    assert total > -0.033 - 0.15          # 复利比相加"轻"
+
+
+def test_combine_without_drawdown_is_just_shock():
+    assert combine_impacts(-0.033, None) == pytest.approx(-0.033)
+
+
+def test_combine_handles_positive_shock():
+    """市场上涨 + 回撤：仍然必须算进去。"""
+    assert combine_impacts(0.05, -0.15) == pytest.approx(1.05 * 0.85 - 1.0)
+
+
+def test_combine_clamps_total_loss():
+    """β 传导可能算出 < -100%（不可能），钳到 -99% 避免回本公式除零。"""
+    assert combine_impacts(-1.7, -0.5) == pytest.approx(-0.99)
+
+
+@pytest.mark.parametrize("loss,need", [
+    (-0.05, 0.05 / 0.95),
+    (-0.10, 0.10 / 0.90),
+    (-0.20, 0.25),
+    (-0.50, 1.00),
+    (-0.80, 4.00),
+])
+def test_recovery_gain_formula(loss, need):
+    assert recovery_gain(loss) == pytest.approx(need)
+
+
+def test_recovery_gain_edges():
+    assert recovery_gain(0.0) == 0.0          # 没亏就不用回本
+    assert recovery_gain(0.02) == 0.0
+    assert recovery_gain(-0.995) is None      # 近乎归零，回本无意义
+
+
+def test_stressed_reports_total_impact_and_recovery():
+    body = run(drawdown=-0.15)
+    s = body["stressed"]
+    expect = (1 + s["portfolio_impact"]) * (1 + s["drawdown_impact"]) - 1
+    assert s["total_impact"] == pytest.approx(expect, abs=1e-6)
+    assert s["recovery_gain"] == pytest.approx(
+        -s["total_impact"] / (1 + s["total_impact"]), abs=1e-6)
+    assert s["recovery_gain_drawdown"] == pytest.approx(0.15 / 0.85, abs=1e-6)
+
+
+def test_total_impact_without_drawdown_equals_shock():
+    s = run(drawdown=None)["stressed"]
+    assert s["drawdown_impact"] is None
+    assert s["total_impact"] == pytest.approx(s["portfolio_impact"])
+    assert s["recovery_gain_drawdown"] is None
+
+
+def test_drawdown_does_not_move_distribution_metrics():
+    """回撤是点估计，**不应该**改变 VaR/波动（那是波动率假设的事）。
+
+    这条测试是把"设计决定"钉住：以后有人想把 drawdown 揉进 σ 会立刻失败。
+    """
+    a = run(drawdown=None)["stressed"]
+    b = run(drawdown=-0.40)["stressed"]
+    for k in ("annualized_volatility", "var_1d_95", "var_1d_99",
+              "es_1d_95", "var_horizon_95", "portfolio_impact"):
+        assert a[k] == pytest.approx(b[k]), k
+    # 但合计影响必须变
+    assert a["total_impact"] != pytest.approx(b["total_impact"])
+
+
+def test_drawdown_notes_explain_compounding():
+    notes = " ".join(run(drawdown=-0.15)["notes"])
+    assert "复利叠加" in notes and "不是相加" in notes
+    assert "回本需涨幅" in notes
+    assert "情景点估计" in notes
+
+
+def test_no_markdown_asterisks_in_notes():
+    """notes 在界面上是纯文本 li，带 ** 会原样显示出来。"""
+    for n in run(drawdown=-0.2)["notes"]:
+        assert "**" not in n, n

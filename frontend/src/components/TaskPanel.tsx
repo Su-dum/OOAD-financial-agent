@@ -9,11 +9,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { services } from "../services";
 import { TaskDTO, TaskRunDTO } from "../models";
+import { PeriodTable } from "./PeriodTable";
 
 interface Props {
   code: string;
   days: number;
   onLoad?: (code: string, days: number) => void;
+  /** 主页面当前是否为「自定义起止日期」；是的话要提示任务只存天数 */
+  customRange?: { start: string; end: string } | null;
 }
 
 const pct = (v: number | null | undefined) =>
@@ -21,7 +24,7 @@ const pct = (v: number | null | undefined) =>
 const num = (v: number | null | undefined) =>
   v === null || v === undefined ? "—" : v.toFixed(2);
 
-export function TaskPanel({ code, days, onLoad }: Props) {
+export function TaskPanel({ code, days, onLoad, customRange }: Props) {
   const [tasks, setTasks] = useState<TaskDTO[]>([]);
   const [name, setName] = useState("");
   const [compare, setCompare] = useState("");
@@ -100,6 +103,14 @@ export function TaskPanel({ code, days, onLoad }: Props) {
         </button>
       </div>
 
+      {customRange && (
+        <p className="muted">
+          注意：主页面当前是自定义区间 {customRange.start} ~ {customRange.end}。
+          分析任务只保存「天数」（这里的 {days} 天），保存后按「最近 {days} 天」重算，
+          <b>不会记住具体起止日期</b>。需要固定日期请直接用上面的日期选择器。
+        </p>
+      )}
+
       {error && <p className="error">{error}</p>}
 
       <ul className="task-list">
@@ -131,43 +142,55 @@ export function TaskPanel({ code, days, onLoad }: Props) {
         <div className="task-result">
           <h3>
             {run.task.name} 结果
-            <span className="muted"> · {run.start} ~ {run.end}</span>
+            <span className="muted"> · 任务区间 {run.start} ~ {run.end}</span>
           </h3>
+
           {run.indicator ? (
-            <div className="kv">
-              <div><dt>累计收益</dt><dd>{pct(run.indicator.total_return)}</dd></div>
-              <div><dt>年化波动</dt><dd>{pct(run.indicator.annualized_volatility)}</dd></div>
-              <div><dt>最大回撤</dt><dd>{pct(run.indicator.max_drawdown)}</dd></div>
-              <div><dt>夏普</dt><dd>{num(run.indicator.sharpe)}</dd></div>
-              <div><dt>事件</dt><dd>{run.event_count} 个</dd></div>
-              <div><dt>ROE</dt><dd>{num(run.indicator.roe)}%</dd></div>
-            </div>
+            <>
+              {/* 下面这块指标是「主力标的」在任务全区间上的表现，
+                  必须显式标出来——否则数字对不上任何一行跨期表。 */}
+              <h4 className="subject">
+                主力标的 {run.indicator.code} {run.indicator.name}
+                {run.indicator.industry_l1 && (
+                  <span className="muted"> · {run.indicator.industry_l1}</span>
+                )}
+                <span className="muted">
+                  {" "}· 全区间 {run.start} ~ {run.end} ·{" "}
+                  {run.indicator.n_days} 个交易日
+                </span>
+              </h4>
+              <div className="kv">
+                <div><dt>累计收益</dt><dd>{pct(run.indicator.total_return)}</dd></div>
+                <div><dt>年化波动</dt><dd>{pct(run.indicator.annualized_volatility)}</dd></div>
+                <div><dt>最大回撤</dt><dd>{pct(run.indicator.max_drawdown)}</dd></div>
+                <div><dt>夏普</dt><dd>{num(run.indicator.sharpe)}</dd></div>
+                <div><dt>事件</dt><dd>{run.event_count} 个</dd></div>
+                <div><dt>ROE</dt><dd>{num(run.indicator.roe)}%</dd></div>
+              </div>
+            </>
           ) : <p className="empty">区间内没有行情数据。</p>}
 
           {run.periods.length > 0 && (
-            <div className="table-wrap">
-              <table className="table">
-                <thead>
-                  <tr><th>区间</th><th>收益</th><th>年化波动</th><th>最大回撤</th><th>夏普</th></tr>
-                </thead>
-                <tbody>
-                  {run.periods.map((p) => (
-                    <tr key={p.period}>
-                      <td>{p.period}</td>
-                      <td>{pct(p.total_return)}</td>
-                      <td>{pct(p.annualized_volatility)}</td>
-                      <td>{pct(p.max_drawdown)}</td>
-                      <td>{num(p.sharpe)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <>
+              <h4 className="subject">
+                跨期比较
+                <span className="muted">
+                  {" "}· 同一标的 {run.task.code} 在不同时间段的表现
+                  （收益为区间累计，波动 / 回撤 / 夏普为年化口径）
+                </span>
+              </h4>
+              <PeriodTable rows={run.periods} />
+            </>
           )}
 
           {run.cross && (
             <>
-              <h3>对比（{run.cross.n_days} 个共同交易日）</h3>
+              <h3>
+                横向对比（{run.cross.n_days} 个共同交易日）
+                <span className="muted">
+                  {" "}· 含主力标的 {run.task.code} 与任务配置的对比组
+                </span>
+              </h3>
               <div className="table-wrap">
                 <table className="table">
                   <thead>
@@ -176,7 +199,12 @@ export function TaskPanel({ code, days, onLoad }: Props) {
                   <tbody>
                     {run.cross.assets.map((a) => (
                       <tr key={a.code}>
-                        <td>{a.code} {a.name}</td>
+                        <td>
+                          {a.code} {a.name}
+                          {a.code === run.task.code && (
+                            <span className="badge" style={{ marginLeft: 6 }}>主力</span>
+                          )}
+                        </td>
                         <td>{pct(a.total_return)}</td>
                         <td>{num(a.beta)}</td>
                         <td>{num(a.corr_to_benchmark)}</td>
@@ -199,6 +227,7 @@ export function TaskPanel({ code, days, onLoad }: Props) {
           <p className="muted">生成于 {run.generated_at}</p>
         </div>
       )}
+
     </section>
   );
 }

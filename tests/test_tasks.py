@@ -39,6 +39,20 @@ class StubAnalyzer:
             total_return=0.02, annualized_volatility=0.2,
             max_drawdown=-0.05, sharpe=0.5)
 
+    def compare_periods(self, code, periods, adjust="qfq", source=None):
+        """与 FinancialAnalyzer.compare_periods 同形（A3 跨期比较的唯一实现）。"""
+        rows = []
+        for label, s, e in periods:
+            r = self.analyze(code, s, e)
+            rows.append(dict(
+                period=label, start=r.start or s, end=r.end or e,
+                n_days=r.n_days, total_return=r.total_return,
+                annualized_return=0.03, annualized_volatility=r.annualized_volatility,
+                downside_deviation=0.1, max_drawdown=r.max_drawdown,
+                sharpe=r.sharpe, sortino=0.7, win_rate=0.5,
+                adjust=adjust, source="baostock"))
+        return rows
+
 
 class StubMonitor:
     def scan(self, code, start, end, **kw):

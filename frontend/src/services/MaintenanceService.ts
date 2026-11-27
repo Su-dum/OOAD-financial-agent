@@ -75,6 +75,66 @@ export interface RetentionPolicy {
   event_cutoff: string;
 }
 
+/** 一次巡检的结果摘要（定时与手动共用同一形状） */
+export interface MonitorRun {
+  profile: "light" | "full";
+  slot: string | null;
+  started_at: string;
+  ok: boolean;
+  elapsed_sec: number;
+  events_detected?: number;
+  notice_events?: number;
+  industry_events?: number;
+  auto_reports?: number;
+  stocks_scanned?: number;
+  note?: string;
+  error?: string;
+  finished_at?: string;
+}
+
+export interface MonitorStatus {
+  enabled: boolean;
+  interval_minutes: number;
+  light_window: { start: string; end: string };
+  full_slots: string[];
+  detect_days: number;
+  skip_weekends: boolean;
+  tick_seconds: number;
+  running_profile: "light" | "full" | null;
+  last_run: MonitorRun | null;
+  next_run_at: string | null;
+  history: MonitorRun[];
+}
+
+/** 右上角提醒的一条重大事件（B3 的通知面） */
+export interface AlertItem {
+  code: string;
+  name: string;
+  event_type: string;
+  label: string;
+  trade_date: string;
+  detected_at: string;
+  severity: "low" | "medium" | "high";
+  detail: string;
+  source_url: string | null;
+  /** 有现成 AI 分析时非空，点开直接看；为空则点开现场跑一次 */
+  report_id: number | null;
+  report_ready: boolean;
+  confidence: number | null;
+  headline: string;
+  llm_model: string;
+  degraded: boolean;
+}
+
+export interface AlertFeed {
+  count: number;
+  since: string;
+  since_clamped: boolean;
+  min_severity: string;
+  now: string;
+  items: AlertItem[];
+}
+
 export class MaintenanceService {
   constructor(private readonly http: HttpClient) {}
 
@@ -104,6 +164,31 @@ export class MaintenanceService {
 
   async removeWatch(code: string): Promise<void> {
     await this.http.delete<void>(`/watchlist/${code}`);
+  }
+
+  /** 定时巡检状态（排班 / 上次结果 / 下次触发） */
+  async monitorStatus(): Promise<MonitorStatus> {
+    return this.http.get<MonitorStatus>("/monitor/status");
+  }
+
+  /** 立刻巡检一次（手动补救 / 演示，不等排班） */
+  async monitorRunNow(profile: "light" | "full" = "light"): Promise<MonitorRun> {
+    return this.http.post<MonitorRun>(`/monitor/run-now?profile=${profile}`, {});
+  }
+
+  /**
+   * 重大事件提醒。`since` 传「上次看到提醒的时间」，
+   * 后端只返回此后**新检测到**的事件（不是按事件发生日，否则会弹一堆历史）。
+   */
+  async alerts(since?: string, opts?: {
+    limit?: number;
+    minSeverity?: "low" | "medium" | "high";
+  }): Promise<AlertFeed> {
+    const qs = new URLSearchParams();
+    if (since) qs.set("since", since);
+    if (opts?.limit !== undefined) qs.set("limit", String(opts.limit));
+    if (opts?.minSeverity) qs.set("min_severity", opts.minSeverity);
+    return this.http.get<AlertFeed>(`/monitor/alerts?${qs}`);
   }
 
   /** 自选股的事件（已落库的） */

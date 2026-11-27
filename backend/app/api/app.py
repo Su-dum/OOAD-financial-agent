@@ -5,7 +5,15 @@
     uvicorn backend.app.api.app:app --reload --port 8000
 或：
     python scripts/run_api.py
+
+## 定时巡检的启动时机
+
+`lifespan` 里启动一个 daemon 线程（`MonitorScheduler`），进程退出时停掉。
+浏览器没开、前端没动的时候，监控仍在按排班跑——这才是「持续监控」。
+用 `MONITOR_ENABLED=false` 可关掉（跑离线单测 / 演示时怕打外部接口）。
 """
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -16,20 +24,42 @@ from .routes import events as events_routes
 from .routes import financials as financials_routes
 from .routes import industries as industries_routes
 from .routes import maintenance as maintenance_routes
+from .routes import monitor as monitor_routes
 from .routes import notices as notices_routes
 from .routes import scenario as scenario_routes
 from .routes import stocks as stocks_routes
 from .routes import tasks as tasks_routes
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """启动后台定时巡检；退出时干净收尾（daemon 线程 + 显式 stop）。"""
+    scheduler = None
+    try:
+        scheduler = get_services().scheduler
+        scheduler.start()
+    except Exception as e:                        # noqa: BLE001
+        # 巡检起不来不能拖垮 API：退化为「只有按需刷新」也能用
+        print(f"[monitor] 定时巡检启动失败（不影响 API）: {type(e).__name__}: {e}")
+    try:
+        yield
+    finally:
+        if scheduler is not None:
+            try:
+                scheduler.stop()
+            except Exception:                      # noqa: BLE001
+                pass
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="金融分析与监控智能体（A 股）",
         version="0.1.0",
+        lifespan=lifespan,
         description=(
             "面向中国 A 股市场的金融分析、事件监控与基于证据的调查智能体。\n\n"
             "- 指标分析：A1 / A2 / A3\n"
-            "- 事件检测：B2\n"
+            "- 事件监控：B1（支持定时自动巡检）/ B2\n"
             "- 事件调查：B3 / D2"
         ),
     )
@@ -51,6 +81,7 @@ def create_app() -> FastAPI:
     app.include_router(tasks_routes.router)
     app.include_router(scenario_routes.router)
     app.include_router(maintenance_routes.router)
+    app.include_router(monitor_routes.router)
 
     @app.get("/api/health", tags=["system"], summary="健康检查")
     def health():

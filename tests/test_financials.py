@@ -221,6 +221,8 @@ def test_analyzer_prefers_financial_snapshot():
     assert r.roe == pytest.approx(23.77)                    # 财务快照优先
     assert r.profit_growth == pytest.approx(-0.27)
     assert r.net_margin == pytest.approx(50.94)
+    assert r.eps == pytest.approx(53.37)
+    assert r.bps == pytest.approx(224.32)                   # PB 的分母，同样来自快照
     assert r.financial_report_date == "2026-09-30"
     assert r.financial_source == "sina_financial"
 
@@ -232,6 +234,7 @@ def test_analyzer_falls_back_to_catalog():
     assert r.roe == pytest.approx(17.95)      # 没有快照 -> 用申万映射表
     assert r.profit_growth == pytest.approx(-1.95)
     assert r.net_margin is None
+    assert r.bps is None                      # 静态映射表没有每股净资产
     assert r.financial_report_date is None
 
 

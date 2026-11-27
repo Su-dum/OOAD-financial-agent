@@ -36,12 +36,22 @@ class Evidence:
 
 @dataclass
 class InvestigationTask:
-    """调查子任务。多步骤调查（D2）的基本单元。"""
+    """调查子任务。多步骤调查（D2）的基本单元。
+
+    注意 `question` 是**要回答的问题**（不是"调用哪个工具"）——
+    这是 D2「decompose into subtasks」与「把工具各跑一遍」的分水岭。
+    `reason` 记录**为什么走这一步**（来自规划的决策），是"动态"的可观察证据。
+    """
     question: str
     tool: str = ""
     status: str = "pending"         # pending / running / done / failed
     result_count: int = 0
     note: str = ""
+    step: int = 0                   # 第几步（1 起）
+    reason: str = ""                # 为什么选这一步（规划给出的理由）
+    # 执行的是哪个**动作**（news_widen / industry / notice_deep ...）。
+    # 与 `tool` 分开：一个工具可服务多个动作，只记工具名就看不出路径变化。
+    action: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -63,6 +73,9 @@ class InvestigationReport:
         default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     # 结论是怎么来的：{provider, model, cited_evidence_ids, degraded, ...}
     llm_meta: dict = field(default_factory=dict)
+    # ---- D2：多步调查的元信息 ----
+    planner: str = ""               # 谁规划的：llm / heuristic
+    stop_reason: str = ""           # 为什么停：信息足够 / 步数上限 / 无可执行动作
 
     # ---------------- 组装 ----------------
     def add_evidence(self, ev: Evidence) -> None:
@@ -87,7 +100,8 @@ class InvestigationReport:
             evidences=[e.to_dict() for e in self.evidences],
             facts=self.facts, hypotheses=self.hypotheses,
             conclusion=self.conclusion, confidence=self.confidence,
-            created_at=self.created_at, llm_meta=self.llm_meta)
+            created_at=self.created_at, llm_meta=self.llm_meta,
+            planner=self.planner, stop_reason=self.stop_reason)
 
     def to_markdown(self) -> str:
         lines = [f"# {self.code} {self.name} 事件调查报告", ""]
@@ -96,10 +110,18 @@ class InvestigationReport:
         if self.question:
             lines += ["## 调查问题", "", self.question, ""]
         if self.tasks:
-            lines += ["## 调查步骤", ""]
-            lines += [f"- [{t.status}] {t.question}（{t.tool}，命中 {t.result_count} 条）"
-                      for t in self.tasks]
+            who = {"llm": "LLM 逐步决策", "heuristic": "规则逐步决策"}.get(
+                self.planner, self.planner or "—")
+            lines += [f"## 调查步骤（{len(self.tasks)} 步 · {who}）", ""]
+            for t in self.tasks:
+                head = f"- [{t.status}] 第 {t.step or '?'} 步 {t.question}"
+                if t.reason:
+                    head += f"\n  - 为什么：{t.reason}"
+                head += f"\n  - 命中 {t.result_count} 条（{t.action or t.tool}）"
+                lines.append(head)
             lines.append("")
+            if self.stop_reason:
+                lines += [f"> 结束原因：{self.stop_reason}", ""]
         if self.facts:
             lines += ["## 事实（有证据支持）", ""] + [f"- {f}" for f in self.facts] + [""]
         if self.hypotheses:

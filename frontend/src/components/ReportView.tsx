@@ -1,16 +1,35 @@
 /** 调查报告：事实与推测**分栏展示**，证据可追溯。 */
 import { InvestigationReport } from "../models";
 
+/** 证据类别 -> 中文（避免把 notice_text 这种内部标识直接给用户看） */
+const KIND_LABEL: Record<string, string> = {
+  news: "新闻",
+  notice: "公告",
+  notice_text: "公告正文",
+  indicator: "指标",
+  industry: "行业指数",
+  cross: "跨资产",
+  event: "事件",
+};
+
 export function ReportView({ report }: { report: InvestigationReport }) {
   const r = report;
   const meta = r.dto.llm_meta ?? {};
   const auto = meta.auto === true;
+  const planner = r.dto.planner ?? "";
+  const plannerLabel = planner === "llm" ? "LLM 逐步决策"
+    : planner === "heuristic" ? "规则逐步决策" : "";
   return (
     <section className="panel report">
       <header>
         <h2>{r.dto.name || r.dto.code} 事件调查报告</h2>
         {auto && <span className="badge warn">自动调查</span>}
         <span className="badge">置信度 {r.confidenceText}</span>
+        {plannerLabel && (
+          <span className="badge" title="调查步骤由谁决定下一步（D2 动态多步调查）">
+            {plannerLabel}
+          </span>
+        )}
       </header>
 
       {r.dto.question && <p className="question">{r.dto.question}</p>}
@@ -19,11 +38,15 @@ export function ReportView({ report }: { report: InvestigationReport }) {
       <ol className="tasks">
         {r.dto.tasks.map((t, idx) => (
           <li key={idx} className={t.status}>
-            {t.question}
-            <span className="meta">（{t.tool}，命中 {t.result_count} 条）</span>
+            第 {t.step ?? idx + 1} 步：{t.question}
+            <span className="meta">（{t.action || t.tool}，命中 {t.result_count} 条）</span>
+            {t.reason && <p className="task-reason">为什么走这步：{t.reason}</p>}
           </li>
         ))}
       </ol>
+      {r.dto.stop_reason && (
+        <p className="muted">结束原因：{r.dto.stop_reason}</p>
+      )}
 
       <div className="two-col">
         <div>
@@ -47,7 +70,7 @@ export function ReportView({ report }: { report: InvestigationReport }) {
       <ol className="evidences">
         {r.dto.evidences.map((e, i) => (
           <li key={i}>
-            <span className="kind">{e.kind}</span>
+            <span className="kind">{KIND_LABEL[e.kind] ?? e.kind}</span>
             <span className="src">{e.source}</span>
             {e.url ? (
               <a href={e.url} target="_blank" rel="noreferrer">

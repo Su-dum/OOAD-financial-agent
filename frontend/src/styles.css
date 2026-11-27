@@ -50,6 +50,15 @@ h3 { font-size: 14px; color: var(--muted); margin: 18px 0 8px; }
 .kv dt { color: var(--muted); font-size: 12px; }
 .kv dd { margin: 0; font-variant-numeric: tabular-nums; }
 
+/* 指标为空时带「?」角标，悬浮显示原因（如估值源降级、银行无毛利率口径） */.kv dd.has-hint { cursor: help; }
+.kv .hint-mark {
+  display: inline-block; margin-left: 6px; width: 14px; height: 14px;
+  line-height: 13px; text-align: center; border-radius: 50%;
+  border: 1px solid var(--line); color: var(--muted);
+  font-size: 10px; vertical-align: super; cursor: help;
+}
+.kv .hint-mark:hover { border-color: var(--accent); color: var(--accent); }
+
 .provenance { color: var(--muted); font-size: 12px; margin-top: 14px; }
 
 .events { list-style: none; padding: 0; margin: 0; }
@@ -76,6 +85,11 @@ h3 { font-size: 14px; color: var(--muted); margin: 18px 0 8px; }
 .tasks, .evidences { padding-left: 18px; margin: 0; }
 .tasks .meta { color: var(--muted); font-size: 12px; }
 .tasks .failed { color: var(--high); }
+/* D2：每一步「为什么走这步」——动态多步调查的可观察证据 */
+.tasks .task-reason {
+  margin: 3px 0 0; font-size: 12px; line-height: 1.5;
+  color: var(--muted); border-left: 2px solid var(--line); padding-left: 8px;
+}
 .evidences li { margin-bottom: 10px; }
 .evidences .kind, .evidences .src, .evidences .when {
   font-size: 12px; color: var(--muted); margin-right: 8px;
@@ -85,6 +99,14 @@ h3 { font-size: 14px; color: var(--muted); margin: 18px 0 8px; }
 
 .error { color: var(--high); }
 .loading, .empty { color: var(--muted); }
+
+/* 口径不一致的提示条（如横向对比里各标的交易日不同） */
+.warn-box {
+  margin: 0 0 12px; padding: 8px 12px; border-radius: 8px; font-size: 12.5px;
+  line-height: 1.65; color: var(--medium);
+  background: rgba(255, 166, 61, .08); border: 1px solid rgba(255, 166, 61, .35);
+}
+.warn-box b { color: var(--text); }
 
 @media (max-width: 720px) {
   .two-col { grid-template-columns: 1fr; }
@@ -107,6 +129,19 @@ h3 { font-size: 14px; color: var(--muted); margin: 18px 0 8px; }
 .refresh-bar button.primary:disabled { opacity: .6; cursor: default; }
 .refresh-summary { font-size: 13px; line-height: 1.7; }
 .refresh-summary b { color: var(--accent); }
+
+/* 自动巡检状态行 */
+.monitor-line {
+  font-size: 12px; color: var(--muted); line-height: 1.7;
+  display: inline-flex; align-items: center; flex-wrap: wrap; gap: 2px;
+}
+.monitor-line b { color: var(--text); font-weight: 600; }
+.monitor-line .dot {
+  width: 7px; height: 7px; border-radius: 50%; display: inline-block;
+  margin-right: 6px;
+}
+.monitor-line .dot.on { background: var(--low, #5bd68b); box-shadow: 0 0 0 3px rgba(91,214,139,.15); }
+.monitor-line .dot.off { background: var(--line); }
 .muted { color: var(--muted); font-size: 12px; }
 .warn { color: var(--medium); font-style: normal; }
 
@@ -150,6 +185,28 @@ h3 { font-size: 14px; color: var(--muted); margin: 18px 0 8px; }
   color: var(--accent); font-weight: 600;
 }
 .range-btn:disabled { opacity: .5; cursor: default; }
+
+/* 区间栏里的自定义日期选择器 */
+.range-sep {
+  width: 1px; height: 18px; background: var(--line); margin: 0 4px;
+}
+.date-input {
+  padding: 4px 8px; border-radius: 8px; font-size: 13px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.date-input:hover { border-color: var(--accent); }
+.date-input:disabled { opacity: .5; }
+/* 深色主题下让原生日历图标可见 */
+.date-input::-webkit-calendar-picker-indicator {
+  filter: invert(.65); cursor: pointer;
+}
+
+/* 任务结果里的小标题：用来标明「这块数字属于谁」 */
+.subject {
+  margin: 14px 0 8px; font-size: 14px; font-weight: 600;
+}
+.subject .muted { font-weight: 400; }
 
 /* ---------- 图表 ---------- */
 .chart { margin: 16px 0 4px; }
@@ -305,6 +362,85 @@ button.ghost:disabled { opacity: .5; cursor: default; }
   border: 1px solid var(--accent); background: var(--accent); color: #fff;
 }
 .task-result { border-top: 1px dashed var(--line); padding-top: 12px; margin-top: 12px; }
+
+/* ================= 右上角重大事件提醒 ================= */
+.toast-stack {
+  position: fixed; top: 16px; right: 16px; z-index: 90;
+  display: flex; flex-direction: column; gap: 10px;
+  width: min(380px, calc(100vw - 32px));
+}
+.toast {
+  position: relative; overflow: hidden;
+  background: var(--panel); border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 10px; padding: 10px 12px 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .45);
+  animation: toast-in .22s ease-out;
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(16px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.toast-high   { border-left-color: #ff5b5b; }
+.toast-medium { border-left-color: #ffa63d; }
+.toast-low    { border-left-color: #5bd68b; }
+
+.toast-close {
+  position: absolute; top: 6px; right: 8px;
+  background: transparent; border: 0; color: var(--muted);
+  font-size: 16px; line-height: 1; cursor: pointer; padding: 2px 4px;
+}
+.toast-close:hover { color: var(--text); }
+
+.toast-body {
+  display: block; width: 100%; text-align: left; cursor: pointer;
+  background: transparent; border: 0; color: inherit; padding: 0;
+  font: inherit;
+}
+.toast-body[aria-disabled="true"] { cursor: progress; }
+
+.toast-head {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding-right: 18px; margin-bottom: 4px; font-size: 13px;
+}
+.toast-head b { font-size: 13.5px; }
+.toast-sev {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .04em;
+  padding: 1px 5px; border-radius: 4px; color: #0f1115; font-weight: 700;
+}
+.toast-sev-high   { background: #ff5b5b; }
+.toast-sev-medium { background: #ffa63d; }
+.toast-sev-low    { background: #5bd68b; }
+.toast-label { color: var(--accent); font-size: 12px; }
+.toast-date  { color: var(--muted); font-size: 12px; margin-left: auto; }
+
+.toast-detail {
+  margin: 0 0 5px; font-size: 12.5px; line-height: 1.5; color: var(--text);
+}
+.toast-headline {
+  margin: 0 0 5px; font-size: 12px; line-height: 1.55; color: var(--muted);
+  border-left: 2px solid var(--line); padding-left: 8px;
+}
+.toast-meta { margin: 0; font-size: 11.5px; color: var(--muted); }
+.toast-meta.busy { color: var(--accent); }
+
+/* 12 秒倒计时进度条 */
+.toast-timer {
+  position: absolute; left: 0; bottom: 0; height: 2px; width: 100%;
+  background: var(--accent); opacity: .55;
+  transform-origin: left center;
+  animation: toast-countdown 12s linear forwards;
+}
+.toast-timer.paused { animation-play-state: paused; }
+@keyframes toast-countdown {
+  from { transform: scaleX(1); }
+  to   { transform: scaleX(0); }
+}
+
+.toast-error {
+  margin: 0; padding: 8px 10px; border-radius: 8px; font-size: 12px;
+  background: rgba(255, 91, 91, .12); border: 1px solid #ff5b5b; color: #ff8f8f;
+}
 
 /* ---------- 行业监控 ---------- */
 .industry-add { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 14px; }

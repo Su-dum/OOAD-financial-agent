@@ -213,7 +213,9 @@ class ConversationAgent:
         for ev in snap.events:
             snap.evidences.append(Evidence(
                 kind="event", source=f"规则({ev.rule_name})",
-                title=f"{ev.trade_date} {ev.event_type}",
+                # 用中文事件名（label），别把 notice_earnings 这种内部标识
+                # 摆到用户面前——它还会被 LLM 原样抄进答案
+                title=f"{ev.trade_date} {ev.label}",
                 url=getattr(ev, "source_url", None),
                 published_at=ev.trade_date,
                 excerpt=ev.detail, confidence=1.0))

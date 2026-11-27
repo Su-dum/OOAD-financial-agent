@@ -17,27 +17,82 @@ from typing import Optional, Sequence
 from ..core import indicators as ind
 from ..domain.models import PriceSeries
 
+# 申万行业指数代码统一以 801 开头（如 801120 食品饮料、801080 电子）。
+# PDF 的 D3 明确写了 "multiple financial assets, companies, **or industries**"，
+# 所以行业必须能作为跨资产分析的输入，不能只在 B1 里单行业看。
+INDUSTRY_PREFIX = "801"
+
 
 def _pct(v, digits: int = 4):
     return None if v is None else round(v, digits)
 
 
 class CrossAssetAnalyzer:
-    def __init__(self, market, catalog=None, benchmark=None, log=print):
+    def __init__(self, market, catalog=None, benchmark=None, industry=None,
+                 log=print):
+        """
+        market    股票行情链（含降级）
+        catalog   股票/行业目录（提供名称与所属行业）
+        benchmark 基准指数源（沪深300 等）
+        industry  行业指数源（SwIndustryIndexProvider）——用来让 801xxx 也能参与比较
+        """
         self.market = market
         self.catalog = catalog
         self.benchmark = benchmark      # 满足 PriceProvider 的指数源（可为 None）
+        self.industry = industry        # 满足 PriceProvider 的行业指数源（可为 None）
         self.log = log
 
+    # ---------------- 代码分类 ----------------
+    @staticmethod
+    def is_industry_code(code) -> bool:
+        c = str(code or "").strip().split(".")[0]
+        return len(c) == 6 and c.isdigit() and c.startswith(INDUSTRY_PREFIX)
+
+    def meta_of(self, code) -> dict:
+        """标的元信息：行业代码走行业目录，股票走股票目录。
+
+        返回 `is_industry` 让前端能标注「这是行业指数而不是某只票」——
+        否则行业和个股混在一张表里会分不清。
+        """
+        c = str(code or "").strip().split(".")[0]
+        if self.is_industry_code(c):
+            name = ""
+            if self.catalog is not None and hasattr(self.catalog, "industry_name"):
+                try:
+                    name = self.catalog.industry_name(c) or ""
+                except Exception:                     # noqa: BLE001
+                    name = ""
+            return dict(name=name, industry_l1="行业指数", is_industry=True)
+        meta = (self.catalog.get(c) if self.catalog else None) or {}
+        return dict(name=meta.get("name") or "",
+                    industry_l1=meta.get("industry_l1_name") or "",
+                    is_industry=False)
+
     # ---------------- 取数与对齐 ----------------
+    def _fetch_industry(self, code: str, start: str, end: str):
+        if self.industry is None:
+            if self.log:
+                self.log(f"  [cross] {code} 是行业代码，但没有行业指数源")
+            return None
+        try:
+            return self.industry.fetch(code, start, end, adjust="none")
+        except Exception as e:                        # noqa: BLE001
+            if self.log:
+                self.log(f"  [cross] 行业 {code} 取数失败: {type(e).__name__}")
+            return None
+
     def fetch(self, codes: Sequence[str], start: str, end: str,
               adjust: str = "qfq", source: Optional[str] = None
               ) -> dict[str, PriceSeries]:
         out: dict[str, PriceSeries] = {}
         for c in codes:
+            key = str(c).strip().split(".")[0]
             try:
-                s = self.market.get_series(c, start, end, adjust=adjust,
-                                           source=source, require_returns=True)
+                if self.is_industry_code(key):
+                    s = self._fetch_industry(key, start, end)
+                else:
+                    s = self.market.get_series(key, start, end, adjust=adjust,
+                                               source=source, require_returns=True)
             except Exception as e:                     # noqa: BLE001
                 if self.log:
                     self.log(f"  [cross] {c} 取数失败: {type(e).__name__}")
@@ -116,11 +171,12 @@ class CrossAssetAnalyzer:
         for code in aligned:
             closes = aligned[code]
             rets = ind.daily_returns(closes)
-            meta = self.catalog.get(code) if self.catalog else {}
+            meta = self.meta_of(code)
             entry = dict(
                 code=code,
-                name=(meta.get("name") or "") if meta else "",
-                industry_l1=(meta.get("industry_l1_name") or "") if meta else "",
+                name=meta["name"],
+                industry_l1=meta["industry_l1"],
+                is_industry=meta["is_industry"],
                 total_return=_pct(ind.total_return(closes)),
                 annualized_return=_pct(ind.annualized_return(closes)),
                 annualized_volatility=_pct(ind.annualized_volatility(rets)),
@@ -141,8 +197,9 @@ class CrossAssetAnalyzer:
         # 净值序列做等距抽样（前端只画折线，不需要 900 个点）
         idx = self._sample_index(len(dates), max_points)
         net = {"dates": [dates[i] for i in idx],
-               "series": [dict(code=code, name=(self.catalog.name_of(code)
-                                                if self.catalog else ""),
+               "series": [dict(code=code,
+                               name=self.meta_of(code)["name"],
+                               is_industry=self.is_industry_code(code),
                                values=[self.net_value(aligned[code])[i] for i in idx])
                           for code in aligned]}
         if bench:

@@ -144,3 +144,75 @@ def test_analyze_series_too_short():
     out = ind.analyze_series(["2026-01-01"], [100.0])
     assert out["n_days"] == 1
     assert out["annualized_volatility"] is None
+
+
+# ============================================================
+# A3 跨期比较（FinancialAnalyzer.compare_periods）—— 字段与区间真实性
+# ============================================================
+class _StubMarket:
+    """按请求区间返回固定序列；可选地「真实序列比请求区间短」。"""
+
+    def __init__(self, short_by=0):
+        self.short_by = short_by
+        self.requests = []
+
+    def get_series(self, code, start, end, adjust="qfq", source=None,
+                  require_returns=True, refresh=False):
+        from backend.app.domain.models import PriceRecord, PriceSeries
+        self.requests.append((start, end))
+        closes = [100.0, 101.0, 99.0, 102.0, 103.0]
+        dates = [f"2026-01-{i+1:02d}" for i in range(len(closes))]
+        if self.short_by:
+            closes = closes[self.short_by:]
+            dates = dates[self.short_by:]
+        return PriceSeries(code=code, adjust=adjust, source="baostock",
+                           records=[PriceRecord(code=code, date=d, open=c, high=c,
+                                                low=c, close=c, adjust=adjust,
+                                                source="baostock")
+                                    for d, c in zip(dates, closes)])
+
+    def meta(self, code):
+        return dict(name="贵州茅台", industry_l1_name="食品饮料")
+
+
+def _analyzer(short_by=0):
+    from backend.app.application.analysis_service import FinancialAnalyzer
+    return FinancialAnalyzer(_StubMarket(short_by), log=None)
+
+
+def test_compare_periods_fields_match_single_stock_metrics():
+    """跨期表字段要与单标的指标对等，否则两处看不到同一个东西。"""
+    rows = _analyzer().compare_periods(
+        "600519", [("上半年", "2026-01-01", "2026-06-30")])
+    for f in ("period", "start", "end", "n_days", "total_return",
+              "annualized_return", "annualized_volatility", "downside_deviation",
+              "max_drawdown", "sharpe", "sortino", "win_rate", "adjust", "source"):
+        assert f in rows[0], f
+    assert rows[0]["total_return"] == pytest.approx(0.03)
+    assert rows[0]["win_rate"] == pytest.approx(3 / 4)     # 100→101→99→102→103
+
+
+def test_compare_periods_reports_actual_range_not_requested():
+    """实际序列比请求区间短时，要回报**真实**起止日，不能沿用请求值。"""
+    full = _analyzer(short_by=0).compare_periods(
+        "600519", [("近1年", "2025-01-01", "2026-06-30")])[0]
+    short = _analyzer(short_by=2).compare_periods(
+        "600519", [("近1年", "2025-01-01", "2026-06-30")])[0]
+    assert full["n_days"] == 5
+    assert short["n_days"] == 3
+    # 关键：short 的 start 是真实首日（2026-01-03），不是请求的 2025-01-01
+    assert short["start"] == "2026-01-03"
+    assert full["start"] == "2026-01-01"
+
+
+def test_compare_periods_handles_empty_window():
+    class Empty(_StubMarket):
+        def get_series(self, *a, **k):
+            return None
+
+    from backend.app.application.analysis_service import FinancialAnalyzer
+    rows = FinancialAnalyzer(Empty(), log=None).compare_periods(
+        "600519", [("空窗", "2020-01-01", "2020-02-01")])
+    assert rows[0]["n_days"] == 0
+    assert rows[0]["total_return"] is None
+    assert rows[0]["start"] == "2020-01-01"      # 退回请求区间，仍是合法值

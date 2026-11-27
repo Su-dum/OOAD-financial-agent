@@ -44,16 +44,33 @@ pandas: corr = -0.0280   beta = -0.0368
 | 数据 | 源 | 说明 |
 |---|---|---|
 | 个股日线 | baostock 前复权（降级 新浪 -> 东财） | 复用 `MarketDataService`，口径与指标页一致 |
+| **行业指数** | **申万** `index_hist_sw`（`SwIndustryIndexProvider`） | 代码以 `801` 开头（`801120` 食品饮料、`801080` 电子、`801780` 银行）；日频、**不复权**、同一套 CSV 缓存 |
 | 基准指数 | **新浪** `index_zh_daily_sina`（旧名 `stock_zh_index_daily`） | 沪深300 `sh000300`；实测 6017 行、2002 年起、0.4s |
-| 缓存 | `CsvPriceCache` | 指数也走同一套 CSV 缓存，key 带 `index_sina` 前缀 |
+| 缓存 | `CsvPriceCache` | 指数也走同一套 CSV 缓存，key 带 `index_sina` / `industry_sw` 前缀 |
 
 指数单独成链（`SinaIndexProvider`），**不混进**股票价格链：`000001` 既是平安银行
 也是上证指数，混在一条链里迟早选错源。所以指数代码必须带交易所前缀（`sh000300`）。
 
+行业指数同样单独一条链，由 `CrossAssetAnalyzer.is_industry_code()` 按 `801` 前缀分流：
+
+```python
+if self.is_industry_code(key):        # 801xxx -> 行业链，adjust="none"
+    s = self._fetch_industry(key, start, end)
+else:                                  # 其余 -> 股票链
+    s = self.market.get_series(...)
+```
+
+这样 D3 满足 PDF 原文的 *"multiple financial assets, companies, **or industries**"*：
+个股 vs 行业、行业 vs 行业都能算。
+
 ## 四、接口
 
 ```bash
+# 个股之间
 GET /api/stocks/cross?codes=600519,000001,300750&start=2025-11-17&end=2026-11-17&benchmark=sh000300
+
+# 个股 vs 行业 / 行业 vs 行业（801xxx 混填即可）
+GET /api/stocks/cross?codes=600519,801120,801080&start=2025-11-26&end=2026-11-26
 ```
 
 返回三块：
@@ -103,11 +120,12 @@ GET /api/stocks/cross?codes=600519,000001,300750&start=2025-11-17&end=2026-11-17
 
 | 组件 | 内容 |
 |---|---|
-| `NetValueChart` | 多标的净值曲线 + 基准虚线（首日 = 100） |
-| `CorrelationMatrix` | 相关系数热力表（蓝正红负，深浅表示强度） |
-| `CrossPanel` | 上面两块 + 区间指标表（收益/波动/回撤/夏普/β/相关/超额） |
+| `NetValueChart` | 多标的净值曲线 + 基准虚线（首日 = 100）；行业指数进图例 |
+| `CorrelationMatrix` | 相关系数热力表（蓝正红负，深浅表示强度）；表头显示「行业 xxx」 |
+| `CrossPanel` | 上面两块 + 区间指标表（收益/波动/回撤/夏普/β/相关/超额），行业行带 `行业` 徽标 |
 
 颜色只表示**相关系数**，不代表涨跌——涨跌沿用项目的红涨绿跌约定。
+输入框可混填个股与行业代码（`600519,801120,801080`），下方有代码示例提示。
 
 ## 七、已知限制
 
@@ -119,5 +137,7 @@ GET /api/stocks/cross?codes=600519,000001,300750&start=2025-11-17&end=2026-11-17
 4. **不考虑停牌与涨跌停**：停牌日不在序列里，涨跌停无特殊处理。
 5. **指数无复权概念**：指数一律 `adjust="none"`，与个股前复权序列比较是行业通行做法，
    但严格讲「个股含分红、指数不含」会带来小幅口径差。
-6. **行业指数尚未接入**：申万 31 个行业指数已验证可用（`docs/datasource-eval.md` §10.2），
-   当前只支持个股 + 宽基基准；行业联动分析是下一步。
+6. **行业指数只认 `801` 前缀**：`is_industry_code()` 按 6 位纯数字 + `801` 开头判定；
+   其他指数（宽基 `sh000300`、概念指数等）不进 `codes`，宽基只作 `benchmark`。
+7. **行业与个股的交易日交集可能更短**：行业指数不停牌，但个股会；取交集后
+   `n_days` 可能比个股单独分析时更少（页面顶部有明确标注）。

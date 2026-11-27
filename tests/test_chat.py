@@ -258,3 +258,17 @@ def test_actions_are_reported_in_response():
     body = build().answer("把跌幅阈值改成 3%，看近半年", CTX)
     kinds = {a["type"] for a in body["actions"]}
     assert kinds == {"set_alert", "set_range"}
+
+# ============================================================
+# 证据标题必须用中文事件名（不能把 notice_earnings 摆到用户面前）
+# ============================================================
+def test_event_evidence_title_uses_chinese_label():
+    ev = MarketEvent(code="600519", name="贵州茅台", event_type="notice_earnings",
+                     trade_date="2026-05-10", detected_at="", severity="medium",
+                     detail="财报披露：半年度报告", rule_name="notice_event")
+    agent = build(events=[ev])
+    body = agent.answer("为什么出现异动？", CTX)
+    titles = [e["title"] for e in body["evidences"] if e["kind"] == "event"]
+    assert titles, "应有事件类证据"
+    assert "财报披露" in titles[0]
+    assert "notice_earnings" not in titles[0]

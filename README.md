@@ -33,13 +33,15 @@
 | **可配置监控/任务/预警（C1）** | ✅ 自选股 + 分析任务（保存重跑）+ 预警三级配置 | `alert_config_service.py` + `task_service.py` |
 | **自然语言追问（C2）** | ✅ 意图路由 + 证据编号 + 条件修改 | `conversation_service.py` |
 | **图表（C3）** | ✅ 手写 SVG：走势图 / 相对表现 / 相关性热力表 / 行业指数 | `frontend/src/components/` |
-| **跨资产分析（D3）** | ✅ 净值 / 相关系数 / 基准 β / 跟踪误差 | `cross_asset_service.py` |
-| **情景分析（D4）** | ✅ 市场冲击 / 波动倍数 / 相关性压力 / 直接回撤 → 组合 VaR 与历史最差窗口 | `scenario_service.py` + `core/scenario.py` |
+| **跨资产分析（D3）** | ✅ 净值 / 相关系数 / 基准 β / 跟踪误差；**行业指数（801xxx）可作为比较对象**，支持个股 vs 行业、行业 vs 行业 | `cross_asset_service.py` |
+| **情景分析（D4）** | ✅ 市场冲击 / 波动倍数 / 相关性压力 / 直接回撤 → 组合 VaR 与历史最差窗口；回撤与冲击**复利叠加**成情景合计影响 + **回本需涨幅** | `scenario_service.py` + `core/scenario.py` |
 | 一键更新 + 保留策略 | ✅ 按钮刷新（新闻/公告/财务/行业/事件/自动调查）+ 90 天裁剪 | `refresh_service.py` |
-| **FastAPI 接口** | ✅ 38 个路径 | `api/routes/` |
+| **定时巡检（B1）** | ✅ 盘中每 30 分钟轻量档 + 盘后 16:00/21:00 完整档，约 40 次外部请求/天；每次巡检落库可追溯 | `scheduler_service.py` |
+| **重大事件提醒（B3）** | ✅ 刷新/巡检发现 high 事件后右上角弹窗，一句话说明 + 可直接打开 LLM 分析；12 秒自动消失 | `alert_feed_service.py` + `AlertToast.tsx` |
+| **FastAPI 接口** | ✅ 43 个路径 | `api/routes/` |
 | **React 前端** | ✅ 指标/图表/事件/报告/追问/跨资产/预警/任务/行业/情景 | `frontend/` |
-| D2 真·动态多步调查 | 🟡 形式满足（固定流水线，非 ReAct） | `investigation_service.py` |
-| 需求用户故事 / UML | ⬜ | — |
+| **D2 动态多步调查** | ✅ 规划器逐步决定下一步（LLM 逐步决策 / 规则兜底），路径随证据变化 | `investigation_planner.py` + `investigation_service.py` |
+| UML | ⬜ | — |
 
 指标实测（贵州茅台，2023-11-20 ~ 2026-11-16，724 个交易日，前复权 / baostock）：
 
@@ -69,8 +71,8 @@
 | 市场冲击传导 | — | **−3.29%**（其中宁德 −3.53%） |
 | 历史最差 20 日窗口 | — | **−9.03%**（2026-09-01 ~ 09-29） |
 
-**验证**：261 个测试（40 公告 + 27 情景 + 23 追问 + 21 架构 + 21 预警 + 19 指标
-+ 17 跨资产 + 16 任务 + 14 财务 + 14 LLM + 13 行业 + 13 运维 + 8 自动调查
+**验证**：361 个测试（40 公告 + 42 情景 + 33 调查规划 + 25 调度 + 23 追问 + 21 架构 + 21 预警 + 19 指标
++ 17 跨资产 + 16 任务 + 14 财务 + 14 LLM + 13 行业 + 13 运维 + 13 提醒 + 9 自动调查
 + 6 采集 + 5 兼容 + 4 并发）
 + pandas 独立实现交叉验证
 （5 项指标对齐 `1e-9`，相关系数/β 与 pandas 完全一致）+ 复权恒等式检验。
@@ -155,7 +157,7 @@
 │   ├── verify_indicators.py    # 指标验收
 │   ├── check_llm.py            # LLM 连通性与抗幻觉自检
 │   └── probes/                 # 11 个数据源探针 + outputs/
-├── tests/                      # 16 个测试文件，261 个用例
+├── tests/                      # 19 个测试文件，361 个用例
 ├── data/
 │   ├── seed/                   # ✅ 提交：行业结构、股票映射 CSV
 │   ├── cache/market/           # ⛔ 忽略：行情缓存
@@ -174,6 +176,19 @@
 ```bash
 pip install -r requirements.txt
 ```
+
+### 0. 一键启动（Windows）
+
+```powershell
+.\start.ps1          # 起后端 8000 + 前端 5173，就绪后自动打开浏览器
+.\stop.ps1           # 关闭（只杀本脚本拉起的进程）
+```
+
+`start.ps1` 会先做环境/端口检查，后台拉起两个服务并**轮询健康检查直到就绪**，
+日志写到 `logs\backend*.log` / `logs\frontend.log`，PID 写到 `logs\dev-servers.json`。
+可选参数：`-BackendOnly`（只起后端）、`-NoBrowser`、`-BackendPort 9000`、`-FrontendPort 5273`。
+脚本要求 PowerShell 5.1+，文件需保持 **UTF-8 BOM**（否则 5.1 会按 GBK 解码中文乱码）。
+macOS / Linux 用下面第 2、3 步手动起。
 
 ### 1. LLM 配置（建议配，不配也能跑）
 
@@ -224,16 +239,44 @@ python scripts/backfill_news.py --auto    # 新闻回溯补齐
 python scripts/backfill_news.py --stats   # 看库现状与保留策略
 python scripts/backfill_news.py --prune   # 按保留策略清理
 
-python -m pytest tests -q                 # 173 个测试
+python -m pytest tests -q                 # 361 个测试
 python scripts/verify_indicators.py       # 指标验收（命中缓存，秒级）
 ```
 
 > ⚠️ `build_industry_map.py` 依赖的 `sw_index_first_info` 在 akshare ≥1.20.44 已被移除/改名，
 > 重建映射需要装旧版 akshare 或改脚本；`data/seed/` 里的映射表已提交，**日常运行不需要重建**。
 
+### 5. 定时巡检（自动监控）
+
+后端起来后，`MonitorScheduler` 会自动按排班巡检——**不用开前端、不用点按钮**。
+
+| 档位 | 何时跑 | 做什么 | 实测耗时 |
+|---|---|---|---|
+| **轻量** | 盘中 09:00–15:00，每 30 分钟 | 只检测行情事件 + 行业指数事件（不碰新闻/公告/财务） | **0.1–1.8s** |
+| **完整** | 盘后 16:00 / 21:00 | 补当天新闻与公告 → 检测 → **自动调查（LLM）** → 保留期裁剪 | **≈19s** |
+
+**为什么这么排**：`BasePriceProvider` 的缓存 key 是「源+代码+复权+起止日」，同一天内重复请求直接命中磁盘，
+所以盘中高频巡检的真实外部流量接近于零。真正贵的是新闻回溯（9 页）和公告全量（7 只），
+而这两者都是「一天补一次就够」的性质（东财新闻可翻 200 天、公告可回补 400 天）。
+一天合计约 **40 次外部请求**，比人工反复点「更新数据」还少。
+
+```bash
+# 看排班、上次结果、下次触发
+curl http://127.0.0.1:8000/api/monitor/status
+# 不等排班，立刻跑一次（前端「立即巡检」按钮用的就是它）
+curl -X POST "http://127.0.0.1:8000/api/monitor/run-now?profile=light"
+```
+
+全部可用环境变量覆盖（见 `.env.example`）：`MONITOR_ENABLED` / `MONITOR_INTERVAL_MINUTES` /
+`MONITOR_LIGHT_START` / `MONITOR_LIGHT_END` / `MONITOR_FULL_SLOTS` / `MONITOR_SKIP_WEEKENDS`。
+最小间隔强制 5 分钟——避免把数据源打穿。
+
+> 手工「更新数据」与定时巡检**共用同一个 `RefreshService`**，只是传入的档位参数不同，
+> 不会出现「按钮跑一套、定时跑另一套」的行为漂移。
+
 ---
 
-## 主要接口（38 个路径）
+## 主要接口（43 个路径）
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -270,6 +313,9 @@ python scripts/verify_indicators.py       # 指标验收（命中缓存，秒级
 | GET | `/api/chat/suggestions` | 追问示例 |
 | GET | `/api/reports` · `/api/reports/{id}` | 调查报告列表 / 详情 |
 | GET | `/api/maintenance/stats` | 数据量与保留策略 |
+| **GET · POST** | **`/api/monitor/status` · `/api/monitor/run-now`** | **定时巡检状态（排班/上次结果/下次触发）· 立刻跑一次（`profile=light|full`）** |
+| **GET** | **`/api/monitor/alerts`** | **重大事件提醒**：自 `since` 之后**新检测到**的 high 事件 + 它们的 AI 分析状态（前端右上角弹窗的数据源） |
+| POST | `/api/monitor/start` · `/api/monitor/stop` | 手动起停后台巡检线程 |
 | POST | `/api/maintenance/prune` | 手动裁剪（支持 `dry_run`） |
 
 ---
@@ -332,10 +378,13 @@ python scripts/verify_indicators.py       # 指标验收（命中缓存，秒级
 
 ## 接下来要做
 
-1. **D2 真·动态多步调查** —— 现在是一次跑完 3 个工具；要改成 ReAct 循环（模型决定下一步）
-2. **行业事件的调查** —— 行业事件目前只能检测、不能「调查」；需要把行业名作为关键词
-   接进 `NewsSearchTool`（`docs/industry.md` 限制 3）
-3. **需求用户故事 + UML** —— 代码结构已稳定，可直接照 `docs/architecture.md` 画
+1. **需求用户故事 + UML** —— 代码结构已稳定，可直接照 `docs/architecture.md` 画
+2. **行业事件的调查（可选）** —— PDF 只在 B1 要求「monitor industries」，没点名要调查行业事件；
+   现状是检测 + 指数走势 + 公告链接，属可辩护的范围界定。要做就加一个按行业名检索新闻的工具。
+
+~~常驻调度~~ ✅ 已做：`MonitorScheduler`（盘中轻量档 + 盘后完整档，见下方「定时巡检」）。
+~~D2 真·动态多步调查~~ ✅ 已做：`InvestigationPlanner`（LLM 逐步决策 + 规则兜底），
+实测 4 种不同类型事件走出 **4 条不同路径**、步数 4~5 不等。详见 `docs/investigation.md`。
 
 ### 暂缓的优化（不急，别忘）
 

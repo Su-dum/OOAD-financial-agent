@@ -224,6 +224,27 @@ def init_schema(con):
     );
     CREATE INDEX IF NOT EXISTS idx_report_code ON report(code, id DESC);
 
+    -- 定时巡检日志（B1）：每跑一次落一行。
+    -- 为什么必须落库：巡检历史只在内存里的话，重启后无法回答
+    -- 「昨晚 21:00 那档到底跑了没有」——这是验收「自动监控是否可行」的基本前提。
+    CREATE TABLE IF NOT EXISTS monitor_run (
+        id               INTEGER PRIMARY KEY AUTOINCREMENT,
+        profile          TEXT NOT NULL,          -- light / full
+        slot             TEXT,                   -- 完整档的触发时点，如 21:00
+        started_at       TEXT NOT NULL,
+        finished_at      TEXT,
+        ok               INTEGER NOT NULL DEFAULT 1,
+        elapsed_sec      REAL,
+        events_detected  INTEGER,
+        notice_events    INTEGER,
+        industry_events  INTEGER,
+        auto_reports     INTEGER,
+        stocks_scanned   INTEGER,
+        error            TEXT,
+        note             TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_monitor_run_time ON monitor_run(started_at DESC);
+
     -- 高置信度关联视图：confidence>=0.85。
     -- 3 字简称（如「机器人」=300024）以及行业通用词会被降权到 0.40~0.70，
     -- 默认查询走这个视图即可过滤掉「人形机器人赛道」这类误匹配。

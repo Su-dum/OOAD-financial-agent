@@ -28,6 +28,7 @@ their potential impact on financial assets or portfolios.*
 两种口径并列输出，互为佐证。
 """
 from math import sqrt
+from typing import Optional
 
 TRADING_DAYS = 252
 
@@ -201,6 +202,45 @@ def expected_shortfall(mean_ret: float, vol: float, alpha: float = 0.95) -> floa
     pdf = _PDF.get(alpha, _PDF[0.95])
     es = vol * pdf / (1.0 - alpha) - mean_ret
     return max(0.0, es)
+
+
+# ---------------------------------------------------------------- 情景叠加
+def combine_impacts(shock: float, drawdown=None) -> float:
+    """把「一次性冲击」与「累积回撤」叠成一个情景点估计。
+
+    用**复利**而不是相加：先跌 shock 之后的市值再承受 drawdown，
+        (1 + shock)(1 + drawdown) − 1
+    相加会高估（-3.3% + -15% = -18.3% vs 复利 -17.8%）。
+
+    假设是「先冲击、后回撤」，两者不重叠。若用户想表达"回撤已包含冲击"，
+    就不该同时施加——这一点在返回的 notes 里会写清楚，不替用户假设。
+
+    跌幅不可能超过 100%，所以结果下限钳在 -99%（避免回本公式除零）。
+    """
+    s = float(shock or 0.0)
+    if drawdown is None:
+        total = s
+    else:
+        total = (1.0 + s) * (1.0 + float(drawdown)) - 1.0
+    return max(-0.99, total)
+
+
+def recovery_gain(loss: float) -> Optional[float]:
+    """从 `loss` 回到原点所需的涨幅（正数）。
+
+        (1 + loss)(1 + g) = 1  =>  g = |loss| / (1 − |loss|)
+
+    亏 20% 需要涨 25%，亏 50% 需要涨 100%——这是「回本比亏损更难」的量化。
+    loss 必须为负数；>= 0 时不需要回本，返回 0。
+    """
+    if loss is None:
+        return None
+    l = float(loss)
+    if l >= 0:
+        return 0.0
+    if l <= -0.99:
+        return None                      # 近乎归零，回本无意义
+    return -l / (1.0 + l)
 
 
 # ---------------------------------------------------------------- 历史重放

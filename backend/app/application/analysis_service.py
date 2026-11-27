@@ -99,8 +99,10 @@ class FinancialAnalyzer:
                 v = meta.get(target)
             _set_float(result, target, v)
 
-        # 新增字段只来自财务快照
-        for f in ("net_margin", "gross_margin", "debt_ratio", "eps"):
+        # 新增字段只来自财务快照（静态映射表没有这些列）
+        # bps 是 PB 的分母：有了它，PB 就能与「股价 / 每股净资产」互相校验，
+        # 并支撑 PB-ROE 二维分析（PB 高不高要看 ROE 配不配）
+        for f in ("net_margin", "gross_margin", "debt_ratio", "eps", "bps"):
             _set_float(result, f, (snap or {}).get(f))
 
         _set_float(result, "market_cap", meta.get("market_cap"))
@@ -125,16 +127,42 @@ class FinancialAnalyzer:
     def compare_periods(self, code: str, periods: Sequence[tuple],
                         adjust: str = "qfq",
                         source: Optional[str] = None) -> list[dict]:
+        """同一标的在多个区间的表现对比。
+
+        这是 A3「不同**时间段**之间的比较」的唯一实现——`task_service` 与
+        `/api/stocks/{code}/periods` 都调它，避免两套逻辑算出不同的数。
+
+        字段与单标的指标对等（收益 / 风险 / 风险调整后 / 胜率），并且**回报每个区间
+        实际取到的起止日**：请求「近 1 年」时若该票中途停牌或上市较晚，真实区间会短于
+        请求区间，这个差别必须让调用方看到（否则跨期表会暗示两段长度相同）。
+        """
         rows = []
         for label, s, e in periods:
-            r = self.analyze(code, s, e, adjust=adjust, source=source)
+            try:
+                r = self.analyze(code, s, e, adjust=adjust, source=source)
+            except Exception:                           # noqa: BLE001
+                r = None
+            if r is None:
+                rows.append(dict(
+                    period=label, start=s, end=e, n_days=0,
+                    total_return=None, annualized_return=None,
+                    annualized_volatility=None, downside_deviation=None,
+                    max_drawdown=None, sharpe=None, sortino=None,
+                    win_rate=None, adjust=adjust, source=""))
+                continue
             rows.append(dict(
-                period=label, start=s, end=e,
-                total_return=None if r is None else r.total_return,
-                annualized_volatility=None if r is None else r.annualized_volatility,
-                max_drawdown=None if r is None else r.max_drawdown,
-                sharpe=None if r is None else r.sharpe,
-                n_days=0 if r is None else r.n_days))
+                period=label,
+                start=r.start or s, end=r.end or e,     # 实际区间，不是请求区间
+                n_days=r.n_days,
+                total_return=r.total_return,
+                annualized_return=r.annualized_return,
+                annualized_volatility=r.annualized_volatility,
+                downside_deviation=r.downside_deviation,
+                max_drawdown=r.max_drawdown,
+                sharpe=r.sharpe,
+                sortino=r.sortino,
+                win_rate=r.win_rate,
+                adjust=r.adjust, source=r.source))
         return rows
 
     # ---------------- 展示 ----------------

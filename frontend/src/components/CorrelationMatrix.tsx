@@ -18,7 +18,19 @@ function cellStyle(v: number | null): CSSProperties {
   };
 }
 
-export function CorrelationMatrix({ correlation }: { correlation: CorrelationDTO }) {
+/** 代码 -> 显示标签（有名称就带上，行业加「行业」前缀）。 */
+export type NameMap = Record<string, { name?: string; is_industry?: boolean }>;
+
+function labelOf(code: string, names?: NameMap): string {
+  const m = names?.[code];
+  if (!m || (!m.name && !m.is_industry)) return code;
+  return `${m.is_industry ? "行业 " : ""}${m.name || code}`;
+}
+
+export function CorrelationMatrix({ correlation, names }: {
+  correlation: CorrelationDTO;
+  names?: NameMap;
+}) {
   const { codes, matrix } = correlation;
   if (!codes?.length || !matrix?.length) {
     return <p className="empty">所选标的共同交易日不足，无法计算相关性。</p>;
@@ -30,13 +42,15 @@ export function CorrelationMatrix({ correlation }: { correlation: CorrelationDTO
         <thead>
           <tr>
             <th />
-            {codes.map((c) => <th key={c}>{c}</th>)}
+            {codes.map((c) => (
+              <th key={c} title={c}>{labelOf(c, names)}</th>
+            ))}
           </tr>
         </thead>
         <tbody>
           {codes.map((rowCode, i) => (
             <tr key={rowCode}>
-              <th scope="row">{rowCode}</th>
+              <th scope="row" title={rowCode}>{labelOf(rowCode, names)}</th>
               {codes.map((colCode, j) => {
                 const v = matrix[i][j];
                 const same = i === j;
@@ -53,6 +67,7 @@ export function CorrelationMatrix({ correlation }: { correlation: CorrelationDTO
       </table>
       <p className="muted">
         日收益率皮尔逊相关系数；蓝为正相关、红为负相关，颜色越深越强。
+        行业指数以「行业」开头标注。
       </p>
     </div>
   );

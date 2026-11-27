@@ -138,6 +138,7 @@ class IndicatorSet:
     gross_margin: Optional[float] = None        # 销售毛利率(%)
     debt_ratio: Optional[float] = None          # 资产负债率(%)
     eps: Optional[float] = None                 # 摊薄每股收益(元)
+    bps: Optional[float] = None                 # 每股净资产(元)，PB 的分母
     financial_report_date: Optional[str] = None  # 快照对应的报告期
     financial_source: Optional[str] = None       # 财务数据来源
 

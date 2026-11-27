@@ -40,6 +40,7 @@ export interface IndicatorDTO {
   gross_margin: number | null;
   debt_ratio: number | null;
   eps: number | null;
+  bps: number | null;
   financial_report_date: string | null;
   financial_source: string | null;
 }
@@ -140,6 +141,12 @@ export interface InvestigationTaskDTO {
   status: string;
   result_count: number;
   note: string;
+  /** 第几步（1 起）。D2：动态多步调查的步序 */
+  step?: number;
+  /** 为什么走这一步（规划器给出的理由），展示给用户看 */
+  reason?: string;
+  /** 执行的动作名（news_widen / industry / notice_deep ...），一个工具可服务多个动作 */
+  action?: string;
 }
 
 export interface ReportDTO {
@@ -156,6 +163,10 @@ export interface ReportDTO {
   created_at: string;
   /** 结论元信息：degraded / auto / model / cited_evidence_ids ... */
   llm_meta?: Record<string, unknown>;
+  /** 谁规划了调查步骤：llm / heuristic（D2） */
+  planner?: string;
+  /** 为什么停止调查：信息已足够 / 达到步数上限 ...（D2） */
+  stop_reason?: string;
 }
 
 export class InvestigationReport {
@@ -229,6 +240,8 @@ export interface CrossAssetDTO {
   code: string;
   name: string;
   industry_l1: string;
+  /** true = 这一行是申万行业指数（801xxx），不是个股 */
+  is_industry?: boolean;
   total_return: number | null;
   annualized_return: number | null;
   annualized_volatility: number | null;
@@ -247,7 +260,12 @@ export interface CorrelationDTO {
 
 export interface NetValueDTO {
   dates: string[];
-  series: { code: string; name: string; values: number[] }[];
+  series: {
+    code: string;
+    name: string;
+    values: number[];
+    is_industry?: boolean;
+  }[];
 }
 
 export interface BenchmarkDTO {
@@ -383,6 +401,13 @@ export interface PeriodRowDTO {
   max_drawdown: number | null;
   sharpe: number | null;
   n_days: number;
+  // A3 扩展：与单标的指标对等，便于跨期比较
+  annualized_return?: number | null;
+  downside_deviation?: number | null;
+  sortino?: number | null;
+  win_rate?: number | null;
+  adjust?: string;
+  source?: string;
 }
 
 // ============================================================
@@ -501,8 +526,16 @@ export interface ScenarioStressedDTO {
   var_1d_99: number | null;
   es_1d_95: number | null;
   var_horizon_95: number | null;
+  /** 市场冲击按 β 传导后的组合影响（一次性） */
   portfolio_impact: number | null;
+  /** 用户施加的累积回撤（原样回显，便于核对） */
   drawdown_impact: number | null;
+  /** 情景点估计：(1+冲击传导)×(1+直接回撤)−1，复利叠加 */
+  total_impact?: number | null;
+  /** 从该情景回到原点所需的涨幅 = |损失|/(1−|损失|) */
+  recovery_gain?: number | null;
+  /** 仅直接回撤部分的回本需涨幅 */
+  recovery_gain_drawdown?: number | null;
 }
 
 export interface ScenarioDTO {

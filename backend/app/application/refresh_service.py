@@ -32,6 +32,23 @@ from .news_service import IngestStats, NewsIngestService
 
 _SEV_ORDER = {"low": 0, "medium": 1, "high": 2}
 
+# 自动调查用哪种结论生成器
+AUTO_MODE_LLM = "llm"
+AUTO_MODE_TEMPLATE = "template"
+
+
+def resolve_auto_mode(raw: Optional[str]) -> str:
+    """`AUTO_INVESTIGATE_MODE` -> 'llm' | 'template'。
+
+    默认 **llm**：用户要的是「有 LLM 参与的调查结论」。
+    之所以敢默认开，是因为 `LLMConclusionWriter` 内部对任何异常（超时 / 非 JSON /
+    引用编号不存在 / conclusion 为空）都会**自动降级到模板**，并把原因写进
+    `llm_meta.reason`——换句话说，开 LLM 不会让刷新失败，最差只是慢一点。
+    只有在明确想省时间（离线演示）时才设成 template。
+    """
+    return (AUTO_MODE_TEMPLATE if (raw or "").strip().lower() == AUTO_MODE_TEMPLATE
+            else AUTO_MODE_LLM)
+
 
 @dataclass
 class RefreshResult:
@@ -105,6 +122,7 @@ class RefreshService:
             max_notice_stocks: int = 12,
             include_financials: bool = True, max_financial_codes: int = 8,
             include_industries: bool = True,
+            include_news: bool = True,
             auto_investigate: Optional[bool] = None) -> RefreshResult:
         t0 = time.time()
         res = RefreshResult(started_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
@@ -112,21 +130,22 @@ class RefreshService:
         wl = self._watchlist()
         do_auto = self.auto_investigate if auto_investigate is None else auto_investigate
 
-        # 1) 新闻增量
-        try:
-            em = self.news.backfill_em(days=news_days, max_pages=max_pages,
-                                       stop_on_known=6)
-            res.news.append(em.to_dict())
-        except Exception as e:                        # noqa: BLE001
-            res.news.append(IngestStats(source="东财新闻列表",
-                                        stopped_by=f"error:{type(e).__name__}").to_dict())
-        # 2) 实时快照
-        try:
-            for st in self.news.collect_latest():
-                res.news.append(st.to_dict())
-        except Exception as e:                        # noqa: BLE001
-            res.news.append(IngestStats(source="实时快照",
-                                        stopped_by=f"error:{type(e).__name__}").to_dict())
+        # 1) 新闻增量（定时巡检的「轻量档」会关掉它：新闻是回补性质，一天一次就够）
+        if include_news:
+            try:
+                em = self.news.backfill_em(days=news_days, max_pages=max_pages,
+                                           stop_on_known=6)
+                res.news.append(em.to_dict())
+            except Exception as e:                        # noqa: BLE001
+                res.news.append(IngestStats(source="东财新闻列表",
+                                            stopped_by=f"error:{type(e).__name__}").to_dict())
+            # 2) 实时快照
+            try:
+                for st in self.news.collect_latest():
+                    res.news.append(st.to_dict())
+            except Exception as e:                        # noqa: BLE001
+                res.news.append(IngestStats(source="实时快照",
+                                            stopped_by=f"error:{type(e).__name__}").to_dict())
 
         # 3) 自选股公告增量
         if include_notices:

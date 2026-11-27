@@ -19,7 +19,8 @@ from backend.app import db as dbmod
 from backend.app.application.maintenance_service import (MaintenanceService,
                                                         RetentionPolicy)
 from backend.app.application.news_service import IngestStats
-from backend.app.application.refresh_service import RefreshService
+from backend.app.application.refresh_service import (RefreshService,
+                                                    resolve_auto_mode)
 from backend.app.domain.events import MarketEvent
 from backend.app.domain.investigation import InvestigationReport
 from backend.app.infrastructure.repositories.event_repository import (
@@ -197,3 +198,39 @@ def test_auto_investigate_without_agent_is_noop(con, wl):
     res = svc.run(news_days=1, max_pages=1, prune=False,
                   include_notices=False, include_financials=False)
     assert res.auto_reports == [] and res.auto_failed == []
+
+# ============================================================
+# 5. 结论生成器选择：默认必须走 LLM（用户要求「有 LLM 参与的结论」）
+# ============================================================
+def test_auto_mode_defaults_to_llm():
+    """不配置时默认 llm——LLM 失败会内部降级模板，不会让刷新挂掉。"""
+    assert resolve_auto_mode(None) == "llm"
+    assert resolve_auto_mode("") == "llm"
+    assert resolve_auto_mode("   ") == "llm"
+
+
+def test_auto_mode_explicit_llm():
+    assert resolve_auto_mode("llm") == "llm"
+    assert resolve_auto_mode("LLM") == "llm"
+
+
+def test_auto_mode_only_template_opts_out():
+    """只有显式写 template 才退回模板；其它任何值（含拼错）都保持 llm。"""
+    assert resolve_auto_mode("template") == "template"
+    assert resolve_auto_mode(" Template ") == "template"
+    assert resolve_auto_mode("bogus") == "llm"
+
+# ============================================================
+# 6. 调查问句必须用中文事件名（不能把内部 token 喂给模型）
+# ============================================================
+def test_question_uses_chinese_label_not_internal_token():
+    """`price_drop` 这种内部标识一旦进了 prompt，会被模型原样抄进结论。"""
+    from backend.app.application.investigation_service import InvestigationAgent
+
+    evt = MarketEvent(code="300750", name="宁德时代", event_type="price_drop",
+                      trade_date="2026-11-25", detected_at="", severity="high",
+                      detail="单日下跌 -8.33%")
+    agent = InvestigationAgent(tools=[], llm=None, log=None)
+    report = agent.investigate(evt)
+    assert "下跌异动" in report.question
+    assert "price_drop" not in report.question
